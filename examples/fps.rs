@@ -1,38 +1,31 @@
-//! FPS-style wheel menu example with weapon selection and abilities.
+//! FPS-style wheel menu example — driven by `QuickActionHudPlugin`.
 //!
-//! This example demonstrates using bevy_wheel_menu in a first-person shooter context
-//! with gamepad support for weapon switching, abilities, and quick actions.
-//!
-//! Controls:
-//! - Left Stick: Move player
-//! - Right Stick: Look around
-//! - Left Bumper (Hold): Open weapon wheel
-//! - Right Bumper (Hold): Open ability wheel
-//! - Left Stick (while wheel open): Navigate wheel
-//! - A/South Button: Select item from wheel
-//! - Right Trigger: Shoot
+//! Controls (gamepad):
+//!   L2 (hold)          — open the HUD wheel overlay
+//!   Right stick        — navigate / highlight wheel segments
+//!   Release to centre  — confirm selection (equip weapon / use ability)
+//!   L1 / R1            — previous / next action set (while HUD is open)
+//!   Left stick         — move player (only when wheel is closed)
+//!   RT                 — shoot (only when wheel is closed)
+//!   ⚙ Edit button      — open in-app config editor (while HUD is open)
 
 use bevy::prelude::*;
-use bevy_wheel_menu::*;
+use bevy_wheel_menu::{
+    ActionSet, HudOpenMode, HudSegmentSelected, QuickActionConfig, QuickActionHudPlugin,
+    SegmentShape, SetEntry, WheelData, WheelHudState, WheelSlotData,
+};
 
-// Modern FPS color theme (Apex Legends / Destiny inspired)
+// ─── FPS colour theme ────────────────────────────────────────────────────────
+
 mod fps_theme {
     use bevy::prelude::*;
-
-    pub const BACKGROUND: Color = Color::srgba(0.02, 0.02, 0.05, 0.92);
-    pub const SLICE_BASE: Color = Color::srgba(0.08, 0.12, 0.18, 0.85);
-    pub const SLICE_HOVER: Color = Color::srgba(0.2, 0.5, 0.9, 0.95);
-    pub const SLICE_EQUIPPED: Color = Color::srgba(0.1, 0.7, 0.4, 0.9);
-    pub const TEXT_NORMAL: Color = Color::srgba(0.7, 0.75, 0.8, 1.0);
-    pub const TEXT_HOVER: Color = Color::srgba(1.0, 1.0, 1.0, 1.0);
-    pub const ICON_NORMAL: Color = Color::srgba(0.6, 0.65, 0.7, 1.0);
-    pub const ICON_HOVER: Color = Color::srgba(1.0, 0.95, 0.8, 1.0);
+    pub const HUD_TEXT: Color = Color::srgba(0.85, 0.85, 0.9, 1.0);
     pub const AMMO_TEXT: Color = Color::srgba(0.9, 0.7, 0.2, 1.0);
     pub const CROSSHAIR: Color = Color::srgba(0.9, 0.9, 0.9, 0.8);
-    pub const HUD_TEXT: Color = Color::srgba(0.85, 0.85, 0.9, 1.0);
 }
 
-// Weapon definitions
+// ─── Weapon definitions ───────────────────────────────────────────────────────
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 enum WeaponType {
     Pistol,
@@ -46,7 +39,7 @@ enum WeaponType {
 }
 
 impl WeaponType {
-    fn icon(&self) -> &'static str {
+    fn icon(self) -> &'static str {
         match self {
             Self::Pistol => "🔫",
             Self::AssaultRifle => "🎯",
@@ -58,8 +51,7 @@ impl WeaponType {
             Self::Knife => "🗡",
         }
     }
-
-    fn name(&self) -> &'static str {
+    fn name(self) -> &'static str {
         match self {
             Self::Pistol => "Pistol",
             Self::AssaultRifle => "AR-15",
@@ -71,8 +63,7 @@ impl WeaponType {
             Self::Knife => "Knife",
         }
     }
-
-    fn max_ammo(&self) -> u32 {
+    fn max_ammo(self) -> u32 {
         match self {
             Self::Pistol => 15,
             Self::AssaultRifle => 30,
@@ -97,7 +88,8 @@ const WEAPONS: &[WeaponType] = &[
     WeaponType::Knife,
 ];
 
-// Ability definitions
+// ─── Ability definitions ──────────────────────────────────────────────────────
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 enum AbilityType {
     Grenade,
@@ -109,33 +101,31 @@ enum AbilityType {
 }
 
 impl AbilityType {
-    fn icon(&self) -> &'static str {
+    fn icon(self) -> &'static str {
         match self {
             Self::Grenade => "💣",
-            Self::Flashbang => "💡",
-            Self::Smoke => "🌫",
-            Self::Heal => "💚",
-            Self::Sprint => "🏃",
+            Self::Flashbang => "✨",
+            Self::Smoke => "💨",
+            Self::Heal => "💊",
+            Self::Sprint => "👟",
             Self::Shield => "🛡",
         }
     }
-
-    fn name(&self) -> &'static str {
+    fn name(self) -> &'static str {
         match self {
-            Self::Grenade => "Frag",
-            Self::Flashbang => "Flash",
+            Self::Grenade => "Grenade",
+            Self::Flashbang => "Flashbang",
             Self::Smoke => "Smoke",
-            Self::Heal => "Med Kit",
+            Self::Heal => "Heal",
             Self::Sprint => "Sprint",
             Self::Shield => "Shield",
         }
     }
-
-    fn cooldown(&self) -> f32 {
+    fn cooldown(self) -> f32 {
         match self {
             Self::Grenade => 15.0,
             Self::Flashbang => 12.0,
-            Self::Smoke => 18.0,
+            Self::Smoke => 10.0,
             Self::Heal => 20.0,
             Self::Sprint => 8.0,
             Self::Shield => 25.0,
@@ -152,7 +142,8 @@ const ABILITIES: &[AbilityType] = &[
     AbilityType::Shield,
 ];
 
-// Player state
+// ─── Game state ───────────────────────────────────────────────────────────────
+
 #[derive(Resource)]
 struct PlayerState {
     current_weapon: WeaponType,
@@ -167,15 +158,13 @@ struct PlayerState {
 impl Default for PlayerState {
     fn default() -> Self {
         let mut ammo = std::collections::HashMap::new();
-        for weapon in WEAPONS {
-            ammo.insert(*weapon, weapon.max_ammo());
+        for &w in WEAPONS {
+            ammo.insert(w, w.max_ammo());
         }
-
         let mut ability_cooldowns = std::collections::HashMap::new();
-        for ability in ABILITIES {
-            ability_cooldowns.insert(*ability, 0.0);
+        for &a in ABILITIES {
+            ability_cooldowns.insert(a, 0.0);
         }
-
         Self {
             current_weapon: WeaponType::AssaultRifle,
             ammo,
@@ -188,61 +177,22 @@ impl Default for PlayerState {
     }
 }
 
-// Wheel types
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WheelType {
-    Weapon,
-    Ability,
-}
-
-#[derive(Resource, Default)]
-struct ActiveWheel {
-    wheel_type: Option<WheelType>,
-}
-
-// Components
-#[derive(Component)]
-struct WheelRoot {
-    wheel_type: WheelType,
-}
-
-#[derive(Component, Clone, Default)]
-struct SliceVisual {
-    index: usize,
-}
-
-#[derive(Component, Clone, Default)]
-struct SliceIcon {
-    index: usize,
-}
-
-#[derive(Component, Clone, Default)]
-struct SliceLabel {
-    index: usize,
-}
-
-#[derive(Component, Clone, Default)]
-struct SliceAmmoText {
-    index: usize,
-}
+// ─── Components ───────────────────────────────────────────────────────────────
 
 #[derive(Component)]
 struct Crosshair;
-
 #[derive(Component)]
 struct HudElement;
-
 #[derive(Component)]
 struct WeaponDisplay;
-
 #[derive(Component)]
 struct HealthDisplay;
-
 #[derive(Component)]
 struct AmmoDisplay;
-
 #[derive(Component)]
 struct PlayerMarker;
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 fn main() {
     App::new()
@@ -254,9 +204,8 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins(WheelMenuPlugin)
+        .add_plugins(QuickActionHudPlugin::with_editor())
         .init_resource::<PlayerState>()
-        .init_resource::<ActiveWheel>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -266,31 +215,89 @@ fn main() {
                 handle_shooting,
                 update_ability_cooldowns,
                 update_hud,
-                on_hover_changed,
-                on_hold_progress,
-                on_wheel_select,
-                on_hold_activated,
-                on_low_ammo,
+                on_segment_selected,
             ),
         )
         .run();
 }
 
-fn setup(mut commands: Commands) {
+// ─── Startup ──────────────────────────────────────────────────────────────────
+
+fn setup(mut commands: Commands, mut cfg: ResMut<QuickActionConfig>) {
     commands.spawn(Camera2d);
-
-    // Spawn HUD elements
     spawn_hud(&mut commands);
-
-    // Spawn crosshair
     spawn_crosshair(&mut commands);
-
-    // Spawn player marker
     spawn_player_marker(&mut commands);
+
+    // Build the weapon wheel from the WEAPONS array.
+    let weapon_wheel = WheelData {
+        name: "Weapons".into(),
+        slots: WEAPONS
+            .iter()
+            .map(|&w| WheelSlotData {
+                name: w.name().into(),
+                icon: w.icon().into(),
+                ..Default::default()
+            })
+            .collect(),
+        outer_radius: 200.0,
+        inner_radius: 70.0,
+        show_labels: true,
+        show_icon: true,
+        segment_shape: SegmentShape::Rounded,
+        highlight_color: "#3b82f6".into(),
+        segment_scale: 0.85,
+        ..Default::default()
+    };
+
+    // Build the ability wheel from the ABILITIES array.
+    let ability_wheel = WheelData {
+        name: "Abilities".into(),
+        slots: ABILITIES
+            .iter()
+            .map(|&a| WheelSlotData {
+                name: a.name().into(),
+                icon: a.icon().into(),
+                ..Default::default()
+            })
+            .collect(),
+        outer_radius: 180.0,
+        inner_radius: 60.0,
+        show_labels: true,
+        show_icon: true,
+        segment_shape: SegmentShape::Circle,
+        highlight_color: "#f59e0b".into(),
+        segment_scale: 0.9,
+        ..Default::default()
+    };
+
+    // Replace the default QuickActionConfig with fps-specific data.
+    *cfg = QuickActionConfig {
+        next_set_key: String::new(),
+        prev_set_key: String::new(),
+        show_set_bar: false,
+        cycle_sets: false,
+        edit_shortcut: String::new(),
+        hud_open_mode: HudOpenMode::Hold,
+        sets: vec![
+            ActionSet {
+                name: "Weapons".into(),
+                opacity: 1.0,
+                input_override: false,
+                entries: vec![SetEntry::Wheel(weapon_wheel)],
+            },
+            ActionSet {
+                name: "Abilities".into(),
+                opacity: 1.0,
+                input_override: false,
+                entries: vec![SetEntry::Wheel(ability_wheel)],
+            },
+        ],
+    };
 }
 
 fn spawn_hud(commands: &mut Commands) {
-    // Top-left: Health and Shield
+    // Top-left: health + shield
     commands.spawn((
         HudElement,
         HealthDisplay,
@@ -302,8 +309,7 @@ fn spawn_hud(commands: &mut Commands) {
         TextColor(fps_theme::HUD_TEXT),
         Transform::from_translation(Vec3::new(-550.0, 320.0, 10.0)),
     ));
-
-    // Bottom-right: Current weapon and ammo
+    // Bottom-right: current weapon
     commands.spawn((
         HudElement,
         WeaponDisplay,
@@ -315,7 +321,7 @@ fn spawn_hud(commands: &mut Commands) {
         TextColor(fps_theme::HUD_TEXT),
         Transform::from_translation(Vec3::new(480.0, -300.0, 10.0)),
     ));
-
+    // Bottom-right: ammo
     commands.spawn((
         HudElement,
         AmmoDisplay,
@@ -327,13 +333,12 @@ fn spawn_hud(commands: &mut Commands) {
         TextColor(fps_theme::AMMO_TEXT),
         Transform::from_translation(Vec3::new(480.0, -330.0, 10.0)),
     ));
-
-    // Bottom center: Controls hint
+    // Bottom center: hints
     commands.spawn((
         HudElement,
-        Text2d::new("LB: Weapons | RB: Abilities | RT: Shoot"),
+        Text2d::new("L2: Wheel  |  L1/R1: Prev/Next Set  |  RT: Shoot  |  ⚙ Edit"),
         TextFont {
-            font_size: FontSize::Px(14.0),
+            font_size: FontSize::Px(13.0),
             ..default()
         },
         TextColor(Color::srgba(0.6, 0.6, 0.6, 0.8)),
@@ -342,7 +347,6 @@ fn spawn_hud(commands: &mut Commands) {
 }
 
 fn spawn_crosshair(commands: &mut Commands) {
-    // Simple crosshair using text
     commands.spawn((
         Crosshair,
         Text2d::new("+"),
@@ -356,7 +360,6 @@ fn spawn_crosshair(commands: &mut Commands) {
 }
 
 fn spawn_player_marker(commands: &mut Commands) {
-    // Player direction indicator
     commands.spawn((
         PlayerMarker,
         Text2d::new("▲"),
@@ -369,310 +372,105 @@ fn spawn_player_marker(commands: &mut Commands) {
     ));
 }
 
-fn spawn_weapon_wheel(commands: &mut Commands, player_state: &PlayerState) {
-    let menu = WheelMenu {
-        slices: WEAPONS.len(),
-        radius: 200.0,
-        inner_radius: 70.0,
-        deadzone: 0.3,
-        gap: 0.03,
-        ..default()
-    };
+// ─── Systems ──────────────────────────────────────────────────────────────────
 
-    // Full-screen overlay (library `bsn!` builder) carrying the wheel-menu logic.
-    // release_to_use: navigate to a weapon, release the stick → equips it.
-    // slow_time: pauses virtual time while the wheel is visible (Wheeler-style).
-    let root = commands
-        .spawn_scene(wheel_overlay())
-        .insert((
-            WheelRoot {
-                wheel_type: WheelType::Weapon,
-            },
-            menu.clone(),
-            WheelState::default(),
-            WheelMenuConfig {
-                time_mode: TimeMode::Slow(0.15),
-                casting_mode: CastingMode::ReleaseToUse,
-                auto_snap: true,
-                ..default()
-            },
-        ))
-        .id();
-
-    // Zero-size hub at screen center used as the positioning origin.
-    let hub = commands.spawn_scene(wheel_hub()).id();
-    commands.entity(root).add_child(hub);
-
-    // Center disc with label.
-    let disc = (menu.inner_radius - 8.0).max(1.0);
-    let center = commands.spawn_scene(wheel_center_disc(disc, fps_theme::BACKGROUND)).id();
-    let hub_label = commands
-        .spawn_scene(wheel_slice_label("WEAPONS".into(), 14.0, fps_theme::TEXT_NORMAL))
-        .id();
-    commands.entity(center).add_child(hub_label);
-    commands.entity(hub).add_child(center);
-
-    let size = 92.0_f32;
-    for (i, weapon) in WEAPONS.iter().enumerate() {
-        // Highlight currently equipped weapon.
-        let base_color = if *weapon == player_state.current_weapon {
-            fps_theme::SLICE_EQUIPPED
-        } else {
-            fps_theme::SLICE_BASE
-        };
-
-        let icon = weapon.icon().to_string();
-        let name = weapon.name().to_string();
-        let ammo = player_state.ammo.get(weapon).copied().unwrap_or(0);
-        let ammo_text = if weapon.max_ammo() > 0 {
-            format!("{}/{}", ammo, weapon.max_ammo())
-        } else {
-            "∞".to_string()
-        };
-
-        // Library builds the positioned, rounded panel via `bsn!`.
-        // WheelSliceCount exposes ammo to the library's low-count system.
-        let max_ammo = weapon.max_ammo();
-        let low_threshold = if max_ammo > 4 { max_ammo / 4 } else { max_ammo };
-        let slice = commands
-            .spawn_scene(wheel_slice_panel(&menu, i, size, base_color))
-            .insert((
-                SliceVisual { index: i },
-                WheelSlice { index: i },
-                WheelSliceCount { current: ammo, max: max_ammo, low_threshold, ..default() },
-            ))
-            .id();
-
-        let icon_entity = commands
-            .spawn_scene(wheel_slice_icon(icon, 26.0, fps_theme::ICON_NORMAL))
-            .insert(SliceIcon { index: i })
-            .id();
-        let label_entity = commands
-            .spawn_scene(wheel_slice_label(name, 12.0, fps_theme::TEXT_NORMAL))
-            .insert(SliceLabel { index: i })
-            .id();
-        let ammo_entity = commands
-            .spawn_scene(wheel_slice_label(ammo_text, 10.0, fps_theme::AMMO_TEXT))
-            .insert(SliceAmmoText { index: i })
-            .id();
-
-        commands
-            .entity(slice)
-            .add_children(&[icon_entity, label_entity, ammo_entity]);
-        commands.entity(hub).add_child(slice);
-    }
-}
-
-fn spawn_ability_wheel(commands: &mut Commands, player_state: &PlayerState) {
-    let menu = WheelMenu {
-        slices: ABILITIES.len(),
-        radius: 180.0,
-        inner_radius: 60.0,
-        deadzone: 0.3,
-        gap: 0.04,
-        ..default()
-    };
-
-    // hold_to_activate: hold the stick on an ability for 0.8 s to fire it.
-    // slow_time: pauses the game while the wheel is visible.
-    let root = commands
-        .spawn_scene(wheel_overlay())
-        .insert((
-            WheelRoot {
-                wheel_type: WheelType::Ability,
-            },
-            menu.clone(),
-            WheelState::default(),
-            WheelMenuConfig {
-                time_mode: TimeMode::Slow(0.15),
-                casting_mode: CastingMode::HoldToActivate { duration: 0.8 },
-                auto_snap: true,
-                ..default()
-            },
-            WheelHoldState::default(),
-        ))
-        .id();
-
-    let hub = commands.spawn_scene(wheel_hub()).id();
-    commands.entity(root).add_child(hub);
-
-    let disc = (menu.inner_radius - 5.0).max(1.0);
-    let center = commands.spawn_scene(wheel_center_disc(disc, fps_theme::BACKGROUND)).id();
-    let hub_label = commands
-        .spawn_scene(wheel_slice_label("ABILITIES".into(), 13.0, fps_theme::TEXT_NORMAL))
-        .id();
-    commands.entity(center).add_child(hub_label);
-    commands.entity(hub).add_child(center);
-
-    let size = 84.0_f32;
-    for (i, ability) in ABILITIES.iter().enumerate() {
-        let cooldown = player_state
-            .ability_cooldowns
-            .get(ability)
-            .copied()
-            .unwrap_or(0.0);
-        let on_cd = cooldown > 0.0;
-        let base_color = if on_cd {
-            Color::srgba(0.3, 0.3, 0.3, 0.7)
-        } else {
-            fps_theme::SLICE_BASE
-        };
-        let icon_color = if on_cd {
-            Color::srgba(0.4, 0.4, 0.4, 0.8)
-        } else {
-            fps_theme::ICON_NORMAL
-        };
-        let cd_text = if on_cd {
-            format!("{:.1}s", cooldown)
-        } else {
-            "Ready".to_string()
-        };
-        let cd_color = if on_cd {
-            Color::srgba(1.0, 0.3, 0.3, 1.0)
-        } else {
-            Color::srgba(0.3, 1.0, 0.3, 1.0)
-        };
-        let icon = ability.icon().to_string();
-        let name = ability.name().to_string();
-
-        // Library builds the positioned, rounded panel via `bsn!`.
-        let slice = commands
-            .spawn_scene(wheel_slice_panel(&menu, i, size, base_color))
-            .insert((SliceVisual { index: i }, WheelSlice { index: i }))
-            .id();
-
-        let icon_entity = commands
-            .spawn_scene(wheel_slice_icon(icon, 28.0, icon_color))
-            .insert(SliceIcon { index: i })
-            .id();
-        let label_entity = commands
-            .spawn_scene(wheel_slice_label(name, 12.0, fps_theme::TEXT_NORMAL))
-            .insert(SliceLabel { index: i })
-            .id();
-        let cd_entity = commands
-            .spawn_scene(wheel_slice_label(cd_text, 10.0, cd_color))
-            .insert(SliceAmmoText { index: i })
-            .id();
-
-        commands
-            .entity(slice)
-            .add_children(&[icon_entity, label_entity, cd_entity]);
-        commands.entity(hub).add_child(slice);
-    }
-}
-
-fn despawn_wheels(commands: &mut Commands, wheel_query: &Query<Entity, With<WheelRoot>>) {
-    for entity in wheel_query.iter() {
-        commands.entity(entity).despawn();
-    }
-}
-
+/// Manages HUD visibility based on L2 input and the configured open mode.
+///
+/// - **Hold** (default): HUD is open while L2 is held; releasing closes it.
+/// - **Toggle**: first L2 press opens, second press closes.
+///
+/// R1/L1 are intentionally free here — they are handled by `apply_set_shortcuts`
+/// in editor.rs, which only fires when `hud.open` is true.
 fn handle_wheel_toggle(
-    mut commands: Commands,
     gamepads: Query<&Gamepad>,
-    wheel_query: Query<Entity, With<WheelRoot>>,
-    mut active_wheel: ResMut<ActiveWheel>,
-    player_state: Res<PlayerState>,
+    mut hud: ResMut<WheelHudState>,
+    cfg: Res<QuickActionConfig>,
 ) {
-    let mut lb_held = false;
-    let mut rb_held = false;
-
-    for gamepad in &gamepads {
-        lb_held = lb_held || gamepad.pressed(GamepadButton::LeftTrigger);
-        rb_held = rb_held || gamepad.pressed(GamepadButton::RightTrigger);
-    }
-
-    let desired_wheel = if lb_held {
-        Some(WheelType::Weapon)
-    } else if rb_held {
-        Some(WheelType::Ability)
-    } else {
-        None
-    };
-
-    if desired_wheel != active_wheel.wheel_type {
-        despawn_wheels(&mut commands, &wheel_query);
-
-        match desired_wheel {
-            Some(WheelType::Weapon) => {
-                spawn_weapon_wheel(&mut commands, &player_state);
-                info!("Opened weapon wheel");
+    match cfg.hud_open_mode {
+        HudOpenMode::Hold => {
+            let mut l2 = false;
+            for gp in &gamepads {
+                l2 |= gp.pressed(GamepadButton::LeftTrigger2);
             }
-            Some(WheelType::Ability) => {
-                spawn_ability_wheel(&mut commands, &player_state);
-                info!("Opened ability wheel");
+            // Keep alive while the editor sidebar is open so the user doesn't
+            // lose the editor by releasing the button.
+            let want_open = l2 || hud.editor_open;
+            if hud.open != want_open {
+                if !want_open {
+                    hud.highlighted = None;
+                }
+                hud.open = want_open;
+                hud.dirty = true;
             }
-            None => {
-                if active_wheel.wheel_type.is_some() {
-                    info!("Closed wheel");
+        }
+        HudOpenMode::Toggle => {
+            let mut just_l2 = false;
+            for gp in &gamepads {
+                just_l2 |= gp.just_pressed(GamepadButton::LeftTrigger2);
+            }
+            if just_l2 {
+                if hud.open && !hud.editor_open {
+                    // Close (don't close while editor is open).
+                    hud.highlighted = None;
+                    hud.open = false;
+                    hud.dirty = true;
+                } else if !hud.open {
+                    hud.open = true;
+                    hud.dirty = true;
                 }
             }
         }
-
-        active_wheel.wheel_type = desired_wheel;
     }
 }
 
+/// Left-stick movement + right-stick look (disabled while wheel is open).
 fn handle_player_movement(
     gamepads: Query<&Gamepad>,
     time: Res<Time>,
     mut player_state: ResMut<PlayerState>,
-    active_wheel: Res<ActiveWheel>,
+    hud: Res<WheelHudState>,
     mut player_marker: Query<&mut Transform, With<PlayerMarker>>,
 ) {
-    // Don't move while wheel is open
-    if active_wheel.wheel_type.is_some() {
+    if hud.open {
         return;
     }
-
-    for gamepad in &gamepads {
-        // Movement with left stick
-        let move_x = gamepad.get(GamepadAxis::LeftStickX).unwrap_or(0.0);
-        let move_y = gamepad.get(GamepadAxis::LeftStickY).unwrap_or(0.0);
-
-        if move_x.abs() > 0.1 || move_y.abs() > 0.1 {
+    for gp in &gamepads {
+        let mx = gp.get(GamepadAxis::LeftStickX).unwrap_or(0.0);
+        let my = gp.get(GamepadAxis::LeftStickY).unwrap_or(0.0);
+        if mx.abs() > 0.1 || my.abs() > 0.1 {
             let speed = 200.0;
-            player_state.position.x += move_x * speed * time.delta_secs();
-            player_state.position.y += move_y * speed * time.delta_secs();
+            player_state.position.x += mx * speed * time.delta_secs();
+            player_state.position.y += my * speed * time.delta_secs();
         }
-
-        // Look with right stick
-        let look_x = gamepad.get(GamepadAxis::RightStickX).unwrap_or(0.0);
-        let look_y = gamepad.get(GamepadAxis::RightStickY).unwrap_or(0.0);
-
-        if look_x.abs() > 0.2 || look_y.abs() > 0.2 {
-            player_state.look_angle = look_y.atan2(look_x);
+        let lx = gp.get(GamepadAxis::RightStickX).unwrap_or(0.0);
+        let ly = gp.get(GamepadAxis::RightStickY).unwrap_or(0.0);
+        if lx.abs() > 0.2 || ly.abs() > 0.2 {
+            player_state.look_angle = ly.atan2(lx);
         }
     }
-
-    // Update player marker position and rotation
-    for mut transform in &mut player_marker {
-        transform.translation.x = player_state.position.x;
-        transform.translation.y = player_state.position.y - 200.0;
-        transform.rotation = Quat::from_rotation_z(player_state.look_angle - std::f32::consts::FRAC_PI_2);
+    for mut t in &mut player_marker {
+        t.translation.x = player_state.position.x;
+        t.translation.y = player_state.position.y - 200.0;
+        t.rotation = Quat::from_rotation_z(player_state.look_angle - std::f32::consts::FRAC_PI_2);
     }
 }
 
+/// RT shoots (disabled while wheel is open).
 fn handle_shooting(
     gamepads: Query<&Gamepad>,
     mut player_state: ResMut<PlayerState>,
-    active_wheel: Res<ActiveWheel>,
+    hud: Res<WheelHudState>,
 ) {
-    // Don't shoot while wheel is open
-    if active_wheel.wheel_type.is_some() {
+    if hud.open {
         return;
     }
-
-    for gamepad in &gamepads {
-        let trigger = gamepad.get(GamepadAxis::RightZ).unwrap_or(0.0);
-
-        if trigger > 0.5 {
-            let weapon = player_state.current_weapon;
-            if weapon.max_ammo() > 0 {
-                if let Some(ammo) = player_state.ammo.get_mut(&weapon) {
+    for gp in &gamepads {
+        if gp.get(GamepadAxis::RightZ).unwrap_or(0.0) > 0.5 {
+            let w = player_state.current_weapon;
+            if w.max_ammo() > 0 {
+                if let Some(ammo) = player_state.ammo.get_mut(&w) {
                     if *ammo > 0 {
                         *ammo -= 1;
-                        // Fire logic would go here
                     }
                 }
             }
@@ -681,175 +479,97 @@ fn handle_shooting(
 }
 
 fn update_ability_cooldowns(time: Res<Time>, mut player_state: ResMut<PlayerState>) {
-    for cooldown in player_state.ability_cooldowns.values_mut() {
-        if *cooldown > 0.0 {
-            *cooldown = (*cooldown - time.delta_secs()).max(0.0);
+    for cd in player_state.ability_cooldowns.values_mut() {
+        if *cd > 0.0 {
+            *cd = (*cd - time.delta_secs()).max(0.0);
         }
     }
 }
 
 fn update_hud(
     player_state: Res<PlayerState>,
-    mut health_query: Query<&mut Text2d, (With<HealthDisplay>, Without<WeaponDisplay>, Without<AmmoDisplay>)>,
-    mut weapon_query: Query<&mut Text2d, (With<WeaponDisplay>, Without<HealthDisplay>, Without<AmmoDisplay>)>,
-    mut ammo_query: Query<&mut Text2d, (With<AmmoDisplay>, Without<HealthDisplay>, Without<WeaponDisplay>)>,
+    mut health_q: Query<
+        &mut Text2d,
+        (
+            With<HealthDisplay>,
+            Without<WeaponDisplay>,
+            Without<AmmoDisplay>,
+        ),
+    >,
+    mut weapon_q: Query<
+        &mut Text2d,
+        (
+            With<WeaponDisplay>,
+            Without<HealthDisplay>,
+            Without<AmmoDisplay>,
+        ),
+    >,
+    mut ammo_q: Query<
+        &mut Text2d,
+        (
+            With<AmmoDisplay>,
+            Without<HealthDisplay>,
+            Without<WeaponDisplay>,
+        ),
+    >,
 ) {
-    for mut text in &mut health_query {
-        text.0 = format!(
+    for mut t in &mut health_q {
+        t.0 = format!(
             "HP: {:.0} | Shield: {:.0}",
             player_state.health, player_state.shield
         );
     }
-
-    for mut text in &mut weapon_query {
-        text.0 = format!(
-            "{} {}",
-            player_state.current_weapon.icon(),
-            player_state.current_weapon.name()
-        );
+    for mut t in &mut weapon_q {
+        let w = player_state.current_weapon;
+        t.0 = format!("{} {}", w.icon(), w.name());
     }
-
-    for mut text in &mut ammo_query {
-        let weapon = player_state.current_weapon;
-        let ammo = player_state.ammo.get(&weapon).copied().unwrap_or(0);
-        if weapon.max_ammo() > 0 {
-            text.0 = format!("{}/{}", ammo, weapon.max_ammo());
+    for mut t in &mut ammo_q {
+        let w = player_state.current_weapon;
+        let ammo = player_state.ammo.get(&w).copied().unwrap_or(0);
+        t.0 = if w.max_ammo() > 0 {
+            format!("{}/{}", ammo, w.max_ammo())
         } else {
-            text.0 = "∞".to_string();
-        }
+            "∞".to_string()
+        };
     }
 }
 
-fn on_hover_changed(
-    mut hover_events: MessageReader<WheelMenuHoverChanged>,
-    mut slice_visuals: Query<(&SliceVisual, &mut BackgroundColor)>,
-    mut slice_icons: Query<(&SliceIcon, &mut TextColor), Without<SliceLabel>>,
-    mut slice_labels: Query<(&SliceLabel, &mut TextColor), Without<SliceIcon>>,
-    active_wheel: Res<ActiveWheel>,
-    player_state: Res<PlayerState>,
-) {
-    for event in hover_events.read() {
-        for (visual, mut bg) in &mut slice_visuals {
-            let is_hovered = event.current == Some(visual.index);
-
-            // Check if this slice is the equipped weapon (for weapon wheel)
-            let is_equipped = match active_wheel.wheel_type {
-                Some(WheelType::Weapon) => WEAPONS
-                    .get(visual.index)
-                    .map(|w| *w == player_state.current_weapon)
-                    .unwrap_or(false),
-                _ => false,
-            };
-
-            bg.0 = if is_hovered {
-                fps_theme::SLICE_HOVER
-            } else if is_equipped {
-                fps_theme::SLICE_EQUIPPED
-            } else {
-                fps_theme::SLICE_BASE
-            };
-        }
-
-        for (icon, mut color) in &mut slice_icons {
-            let is_hovered = event.current == Some(icon.index);
-            color.0 = if is_hovered {
-                fps_theme::ICON_HOVER
-            } else {
-                fps_theme::ICON_NORMAL
-            };
-        }
-
-        for (label, mut color) in &mut slice_labels {
-            let is_hovered = event.current == Some(label.index);
-            color.0 = if is_hovered {
-                fps_theme::TEXT_HOVER
-            } else {
-                fps_theme::TEXT_NORMAL
-            };
-        }
-    }
-}
-
-/// Handles weapon selection via Release-to-Use (stick snaps to centre).
-/// Ability activation is handled by `on_hold_activated` via WheelMenuHoldActivated.
-fn on_wheel_select(
-    mut select_events: MessageReader<WheelMenuSelected>,
-    active_wheel: Res<ActiveWheel>,
+/// Reacts to the release-to-use selection emitted by `hud_stick_nav`.
+/// Set 0 = weapons, Set 1 = abilities.
+fn on_segment_selected(
+    mut events: bevy::ecs::message::MessageReader<HudSegmentSelected>,
     mut player_state: ResMut<PlayerState>,
 ) {
-    for event in select_events.read() {
-        if let Some(WheelType::Weapon) = active_wheel.wheel_type {
-            if let Some(weapon) = WEAPONS.get(event.index) {
-                player_state.current_weapon = *weapon;
-                info!("Equipped weapon: {} {}", weapon.icon(), weapon.name());
-            }
-        }
-    }
-}
-
-/// Fires when the hold-to-activate threshold is reached on the ability wheel.
-fn on_hold_activated(
-    mut activate_events: MessageReader<WheelMenuHoldActivated>,
-    active_wheel: Res<ActiveWheel>,
-    mut player_state: ResMut<PlayerState>,
-) {
-    for event in activate_events.read() {
-        if let Some(WheelType::Ability) = active_wheel.wheel_type {
-            if let Some(ability) = ABILITIES.get(event.index) {
-                let cooldown = player_state
-                    .ability_cooldowns
-                    .get(ability)
-                    .copied()
-                    .unwrap_or(0.0);
-                if cooldown <= 0.0 {
-                    player_state
-                        .ability_cooldowns
-                        .insert(*ability, ability.cooldown());
-                    info!("Used ability (hold): {} {}", ability.icon(), ability.name());
-                } else {
-                    info!(
-                        "Ability {} on cooldown: {:.1}s remaining",
-                        ability.name(),
-                        cooldown
-                    );
+    for ev in events.read() {
+        match ev.set {
+            0 => {
+                if let Some(&weapon) = WEAPONS.get(ev.slot) {
+                    player_state.current_weapon = weapon;
+                    info!("Equipped: {} {}", weapon.icon(), weapon.name());
                 }
             }
-        }
-    }
-}
-
-/// Brightens the hovered ability slice as the hold charge builds (0 → 1).
-fn on_hold_progress(
-    mut progress_events: MessageReader<WheelMenuHoldProgress>,
-    mut slice_visuals: Query<(&SliceVisual, &mut BackgroundColor)>,
-) {
-    for event in progress_events.read() {
-        let t = event.progress;
-        for (visual, mut bg) in &mut slice_visuals {
-            if visual.index == event.index {
-                // Blend from SLICE_HOVER toward a bright charged tint as t → 1.
-                bg.0 = Color::srgba(
-                    0.2 + 0.6 * t,
-                    0.5 + 0.45 * t,
-                    0.9 + 0.1 * t,
-                    0.95,
-                );
+            1 => {
+                if let Some(&ability) = ABILITIES.get(ev.slot) {
+                    let cd = player_state
+                        .ability_cooldowns
+                        .get(&ability)
+                        .copied()
+                        .unwrap_or(0.0);
+                    if cd <= 0.0 {
+                        player_state
+                            .ability_cooldowns
+                            .insert(ability, ability.cooldown());
+                        info!("Used ability: {} {}", ability.icon(), ability.name());
+                    } else {
+                        info!(
+                            "Ability {} on cooldown: {:.1}s remaining",
+                            ability.name(),
+                            cd
+                        );
+                    }
+                }
             }
-        }
-    }
-}
-
-/// Turns the ammo counter bright red when the library emits a low-ammo warning.
-fn on_low_ammo(
-    mut low_events: MessageReader<WheelMenuLowCount>,
-    mut ammo_texts: Query<(&SliceAmmoText, &mut TextColor)>,
-) {
-    for event in low_events.read() {
-        for (ammo_text, mut color) in &mut ammo_texts {
-            if ammo_text.index == event.index {
-                color.0 = Color::srgba(1.0, 0.15, 0.15, 1.0);
-                info!("Low ammo on slot {}: {} remaining", event.index, event.current);
-            }
+            _ => {}
         }
     }
 }

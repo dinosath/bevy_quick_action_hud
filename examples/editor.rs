@@ -12,7 +12,7 @@
 //! - `SAVE` / `LOAD` persist the whole document as RON (`quickactions_config.ron`)
 
 use bevy::prelude::*;
-use bevy_wheel_menu::editor::QuickActionEditorPlugin;
+use bevy_wheel_menu::{editor::QuickActionEditorPlugin, WheelHudState};
 
 fn main() {
     App::new()
@@ -29,6 +29,10 @@ fn main() {
         .run();
 }
 
-fn setup(mut commands: Commands) {
+fn setup(mut commands: Commands, mut hud: ResMut<WheelHudState>) {
     commands.spawn(Camera2d);
+    // Start with both the HUD overlay and editor sidebar visible so the
+    // standalone editor example doesn't require a gamepad to see anything.
+    hud.open = true;
+    hud.editor_open = true;
 }

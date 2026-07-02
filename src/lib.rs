@@ -6,10 +6,16 @@
 pub mod editor;
 pub mod mesh;
 
+use bevy::color::Alpha;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Default filename for the persisted [`QuickActionConfig`].
+/// Resolved relative to the process working directory (the project root when
+/// running via `cargo run`).
+pub const CONFIG_FILE: &str = "quickactions_config.ron";
 
 /// Leafwing-backed input actions for gamepad wheel navigation.
 ///
@@ -682,17 +688,73 @@ pub struct WheelSlotItemChanged {
 
 // ─── plugin ───────────────────────────────────────────────────────────────────
 
-/// Plugin that provides headless wheel-menu logic.
+/// Emitted by [`hud_stick_nav`] when the player releases the right stick while
+/// [`WheelHudState::open`] is `true` (release-to-use selection).
+#[derive(Message, Clone, Debug)]
+pub struct HudSegmentSelected {
+    /// Index of the active [`ActionSet`].
+    pub set: usize,
+    /// Index of the entry within that set (a [`SetEntry::Wheel`] or the
+    /// first wheel inside a [`SetEntry::WheelSet`]).
+    pub entry: usize,
+    /// Wheel index inside a `WheelSet`, `None` for a bare `Wheel`.
+    pub wheel: Option<usize>,
+    /// Slot index within the wheel.
+    pub slot: usize,
+}
+
+/// The unified wheel-menu plugin.
 ///
-/// Registers all messages and chains all built-in systems.  See the examples
-/// for how to wire rendering and game-specific reactions on top.
-pub struct WheelMenuPlugin;
+/// | Constructor | Core wheel logic | HUD canvas | Editor sidebar |
+/// |---|---|---|---|
+/// | `QuickActionHudPlugin::core()` | ✓ | | |
+/// | `QuickActionHudPlugin::default()` | ✓ | ✓ | |
+/// | `QuickActionHudPlugin::with_editor()` | ✓ | ✓ | ✓ |
+///
+/// The **core** systems are the full wheel input / hover / selection / hold
+/// pipeline (everything that was in the old `WheelMenuPlugin`).
+/// The **HUD canvas** renders [`QuickActionConfig`]-driven wheels and action
+/// buttons on screen.
+/// The **editor sidebar** adds the in-app config editor.
+pub struct QuickActionHudPlugin {
+    /// Render the [`QuickActionConfig`]-driven HUD canvas.
+    pub hud: bool,
+    /// Enable the in-app editor sidebar.
+    pub editor: bool,
+}
 
-/// Alias so call-sites can use either name.
-pub type ActionWheelPlugin = WheelMenuPlugin;
+impl Default for QuickActionHudPlugin {
+    fn default() -> Self {
+        Self {
+            hud: true,
+            editor: false,
+        }
+    }
+}
 
-impl Plugin for WheelMenuPlugin {
+impl QuickActionHudPlugin {
+    /// Core wheel systems only — no HUD canvas, no editor.
+    /// Drop-in replacement for the old `WheelMenuPlugin` when you manage your
+    /// own rendering.
+    pub fn core() -> Self {
+        Self {
+            hud: false,
+            editor: false,
+        }
+    }
+
+    /// Full HUD canvas **with** the editor sidebar enabled.
+    pub fn with_editor() -> Self {
+        Self {
+            hud: true,
+            editor: true,
+        }
+    }
+}
+
+impl Plugin for QuickActionHudPlugin {
     fn build(&self, app: &mut App) {
+        // ── core wheel input / logic ──────────────────────────────────────────
         app.add_plugins(InputManagerPlugin::<WheelNavAction>::default())
             .init_resource::<GlobalBindings>()
             // selection messages
@@ -734,8 +796,38 @@ impl Plugin for WheelMenuPlugin {
                 )
                     .chain(),
             );
+
+        // ── HUD canvas ────────────────────────────────────────────────────────
+        if self.hud {
+            app.init_resource::<QuickActionConfig>()
+                .init_resource::<WheelHudState>()
+                .add_message::<HudSegmentSelected>()
+                .add_systems(PostStartup, try_autoload_config)
+                .add_systems(
+                    Update,
+                    (hud_button_feedback, hud_stick_nav, rebuild_hud).chain(),
+                );
+        }
+
+        // ── editor sidebar ────────────────────────────────────────────────────
+        if self.editor {
+            editor::register_editor_systems(app);
+        }
     }
 }
+
+/// Backward-compat wrapper — use [`QuickActionHudPlugin::core()`] instead.
+///
+/// Provides core wheel logic with no HUD canvas.
+pub struct WheelMenuPlugin;
+impl Plugin for WheelMenuPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(QuickActionHudPlugin::core());
+    }
+}
+
+/// Alias kept for call-sites that used `ActionWheelPlugin`.
+pub type ActionWheelPlugin = WheelMenuPlugin;
 
 /// Spawns the global entity that holds the [`WheelNavAction`] input map.
 /// Called once at startup by [`WheelMenuPlugin`].
@@ -1426,5 +1518,1264 @@ pub fn wheel_slice_label(
         Text({text})
         TextFont { font_size: {FontSize::Px(font_size)} }
         TextColor({color})
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// QUICK-ACTION CONFIG — data model for the editor and the HUD
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// Placement reference for a floating quick-action button.
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub enum PositionMode {
+    #[default]
+    Relative,
+    Absolute,
+}
+impl PositionMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Relative => "Relative",
+            Self::Absolute => "Absolute",
+        }
+    }
+    pub fn next(self) -> Self {
+        match self {
+            Self::Relative => Self::Absolute,
+            Self::Absolute => Self::Relative,
+        }
+    }
+}
+
+/// Shape of a quick-action HUD button.
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub enum ActionShape {
+    #[default]
+    Rounded,
+    Round,
+    Square,
+    Diamond,
+}
+impl ActionShape {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rounded => "Rounded",
+            Self::Round => "Round",
+            Self::Square => "Square",
+            Self::Diamond => "Diamond",
+        }
+    }
+    pub fn next(self) -> Self {
+        match self {
+            Self::Rounded => Self::Round,
+            Self::Round => Self::Square,
+            Self::Square => Self::Diamond,
+            Self::Diamond => Self::Rounded,
+        }
+    }
+}
+
+/// Visual theme for a wheel.
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub enum WheelTheme {
+    #[default]
+    Dark,
+    Light,
+}
+impl WheelTheme {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+    pub fn next(self) -> Self {
+        match self {
+            Self::Dark => Self::Light,
+            Self::Light => Self::Dark,
+        }
+    }
+}
+
+/// Shape rendered for each segment panel inside the wheel.
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub enum SegmentShape {
+    #[default]
+    Rounded,
+    Square,
+    Circle,
+    /// Asymmetric corners — outer large, inner small.
+    Wedge,
+    /// Real `Mesh2d` wedge arc (uses `bevy::mesh`).
+    Pie,
+}
+impl SegmentShape {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rounded => "Rounded",
+            Self::Square => "Square",
+            Self::Circle => "Circle",
+            Self::Wedge => "Wedge",
+            Self::Pie => "Pie",
+        }
+    }
+    pub fn next(self) -> Self {
+        match self {
+            Self::Rounded => Self::Square,
+            Self::Square => Self::Circle,
+            Self::Circle => Self::Wedge,
+            Self::Wedge => Self::Pie,
+            Self::Pie => Self::Rounded,
+        }
+    }
+}
+
+// ── palette helpers ─────────────────────────────────────────────────────────────
+pub const ICON_PALETTE: &[&str] = &["◆", "●", "★", "▲", "✦", "✚", "◈", "○", "◐", "✱"];
+pub const COMMAND_PALETTE: &[&str] = &[
+    "none", "attack", "heal", "block", "dash", "reload", "interact", "jump", "crouch", "sprint",
+];
+pub fn cycle_palette<'a>(list: &[&'a str], current: &str) -> &'a str {
+    let idx = list.iter().position(|s| *s == current).unwrap_or(0);
+    list[(idx + 1) % list.len()]
+}
+
+// ── serde defaults ──────────────────────────────────────────────────────────────
+fn _default_true() -> bool {
+    true
+}
+fn _default_action_color() -> String {
+    "#3b82f6".into()
+}
+fn _default_action_width() -> f32 {
+    80.0
+}
+fn _default_action_height() -> f32 {
+    28.0
+}
+fn _default_outer_radius() -> f32 {
+    110.0
+}
+fn _default_inner_radius() -> f32 {
+    38.0
+}
+fn _full_opacity() -> f32 {
+    1.0
+}
+fn _default_highlight_color() -> String {
+    "#f59e0b".into()
+}
+fn _default_segment_scale() -> f32 {
+    1.0
+}
+
+// ── slot / item data ─────────────────────────────────────────────────────────────
+
+/// One item in a slot's cycle carousel.
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct SlotItem {
+    pub name: String,
+    pub icon: String,
+}
+
+/// Per-segment data for the editor config.
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[serde(default)]
+pub struct WheelSlotData {
+    pub name: String,
+    pub icon: String,
+    /// Captured input label: keyboard key or "GP:…" gamepad.
+    pub input: String,
+    pub items: Vec<SlotItem>,
+}
+impl WheelSlotData {
+    pub fn named(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+}
+
+// ── quick action ─────────────────────────────────────────────────────────────────
+
+/// A key-bound floating HUD button.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
+pub struct QuickAction {
+    pub name: String,
+    /// Keyboard key or gamepad button ("GP:\u{2026}" prefix) that triggers this action.
+    pub key: String,
+    pub icon: String,
+    pub command: String,
+    pub hold: bool,
+    pub show_on_menu: bool,
+    pub opacity: f32,
+    pub position: PositionMode,
+    pub radius: f32,
+    pub shape: ActionShape,
+    #[serde(default = "_default_action_color")]
+    pub color: String,
+    #[serde(default = "_default_action_width")]
+    pub width: f32,
+    #[serde(default = "_default_action_height")]
+    pub height: f32,
+    #[serde(default = "_default_true")]
+    pub enabled: bool,
+}
+impl Default for QuickAction {
+    fn default() -> Self {
+        Self {
+            name: "Action".into(),
+            key: String::new(),
+            icon: "◆".into(),
+            command: "none".into(),
+            hold: false,
+            show_on_menu: true,
+            opacity: 1.0,
+            position: PositionMode::Relative,
+            radius: 48.0,
+            shape: ActionShape::Rounded,
+            color: _default_action_color(),
+            width: _default_action_width(),
+            height: _default_action_height(),
+            enabled: true,
+        }
+    }
+}
+
+// ── wheel config data ────────────────────────────────────────────────────────────
+
+/// Editor data-model wheel — one radial menu with named segments.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
+pub struct WheelData {
+    pub name: String,
+    pub cooldown_secs: f32,
+    pub slots: Vec<WheelSlotData>,
+    #[serde(default)]
+    pub theme: WheelTheme,
+    #[serde(default = "_default_outer_radius")]
+    pub outer_radius: f32,
+    #[serde(default = "_default_inner_radius")]
+    pub inner_radius: f32,
+    #[serde(default = "_default_true")]
+    pub show_labels: bool,
+    #[serde(default)]
+    pub segment_shape: SegmentShape,
+    #[serde(default = "_default_true")]
+    pub show_icon: bool,
+    #[serde(default = "_default_highlight_color")]
+    pub highlight_color: String,
+    #[serde(default = "_default_segment_scale")]
+    pub segment_scale: f32,
+    /// Overall opacity of the wheel overlay (0.0 – 1.0).
+    #[serde(default = "_full_opacity")]
+    pub opacity: f32,
+    /// Hex color for the inner-radius border ring; empty = no border.
+    #[serde(default)]
+    pub inner_border: String,
+    /// Hex color for the outer-radius border ring; empty = no border.
+    #[serde(default)]
+    pub outer_border: String,
+}
+impl Default for WheelData {
+    fn default() -> Self {
+        Self {
+            name: "Wheel".into(),
+            cooldown_secs: 6.0,
+            slots: vec![WheelSlotData::named("Slot 1")],
+            theme: WheelTheme::Dark,
+            outer_radius: _default_outer_radius(),
+            inner_radius: _default_inner_radius(),
+            show_labels: true,
+            segment_shape: SegmentShape::Rounded,
+            show_icon: true,
+            highlight_color: "#f59e0b".into(),
+            segment_scale: 1.0,
+            opacity: 1.0,
+            inner_border: String::new(),
+            outer_border: String::new(),
+        }
+    }
+}
+impl WheelData {
+    pub fn new(name: impl Into<String>, n: usize) -> Self {
+        Self {
+            name: name.into(),
+            slots: (0..n.max(1))
+                .map(|i| WheelSlotData::named(format!("Slot {}", i + 1)))
+                .collect(),
+            ..Default::default()
+        }
+    }
+    pub fn to_wheel_menu(&self) -> WheelMenu {
+        WheelMenu {
+            slices: self.slots.len().max(1),
+            radius: self.outer_radius.max(40.0),
+            inner_radius: self.inner_radius.max(8.0),
+            deadzone: 0.3,
+            gap: 0.04,
+            arc_span: std::f32::consts::TAU,
+            arc_offset: std::f32::consts::FRAC_PI_6,
+            overlap: false,
+        }
+    }
+}
+
+/// A named group of [`WheelData`] entries the player can switch between.
+/// Serialized as `WheelSet` for RON compatibility.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
+pub struct WheelSetData {
+    pub name: String,
+    pub wheels: Vec<WheelData>,
+    #[serde(default)]
+    pub switch_key: String,
+}
+impl Default for WheelSetData {
+    fn default() -> Self {
+        Self {
+            name: "Wheel Set".into(),
+            wheels: Vec::new(),
+            switch_key: String::new(),
+        }
+    }
+}
+
+/// One entry inside an [`ActionSet`].
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum SetEntry {
+    Action(QuickAction),
+    Wheel(WheelData),
+    WheelSet(WheelSetData),
+}
+
+/// A named context group that holds quick actions and wheels.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ActionSet {
+    pub name: String,
+    #[serde(default = "_full_opacity")]
+    pub opacity: f32,
+    #[serde(default)]
+    pub input_override: bool,
+    pub entries: Vec<SetEntry>,
+}
+
+/// Whether the HUD overlay opens while a button is held (released = close)
+/// or toggles open/closed on each press.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub enum HudOpenMode {
+    /// Hold the trigger to keep the HUD open; releasing closes it.
+    #[default]
+    Hold,
+    /// First press opens the HUD; second press closes it.
+    Toggle,
+}
+
+impl HudOpenMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            HudOpenMode::Hold => "Hold",
+            HudOpenMode::Toggle => "Toggle",
+        }
+    }
+    pub fn next(&self) -> Self {
+        match self {
+            HudOpenMode::Hold => HudOpenMode::Toggle,
+            HudOpenMode::Toggle => HudOpenMode::Hold,
+        }
+    }
+}
+
+/// The complete editable document (Bevy `Resource`).
+#[derive(Resource, Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
+pub struct QuickActionConfig {
+    #[serde(default)]
+    pub next_set_key: String,
+    #[serde(default)]
+    pub prev_set_key: String,
+    /// Show the ActionSet tab bar in the HUD overlay.
+    #[serde(default = "_default_true")]
+    pub show_set_bar: bool,
+    /// Pressing Next on the last set wraps to the first (cycle), otherwise stops.
+    #[serde(default)]
+    pub cycle_sets: bool,
+    /// Key or gamepad button ("GP:…" prefix) that opens/closes the editor sidebar.
+    #[serde(default)]
+    pub edit_shortcut: String,
+    /// Whether the HUD trigger button is a hold (release = close) or a toggle.
+    #[serde(default)]
+    pub hud_open_mode: HudOpenMode,
+    pub sets: Vec<ActionSet>,
+}
+
+impl Default for QuickActionConfig {
+    fn default() -> Self {
+        let mut combat_wheel = WheelData::new("Combat Wheel", 6);
+        combat_wheel.slots = vec![
+            WheelSlotData::named("Map"),
+            WheelSlotData::named("Attack"),
+            WheelSlotData::named("Block"),
+            WheelSlotData::named("Heal"),
+            WheelSlotData::named("Ability"),
+            WheelSlotData::named("Sprint"),
+        ];
+        Self {
+            next_set_key: "Tab".into(),
+            prev_set_key: "Q".into(),
+            show_set_bar: true,
+            cycle_sets: false,
+            edit_shortcut: String::new(),
+            hud_open_mode: HudOpenMode::Hold,
+            sets: vec![
+                ActionSet {
+                    name: "Combat".into(),
+                    opacity: 1.0,
+                    input_override: false,
+                    entries: vec![
+                        SetEntry::WheelSet(WheelSetData {
+                            name: "Wheel Set".into(),
+                            switch_key: String::new(),
+                            wheels: vec![combat_wheel, WheelData::new("Wheel 2", 6)],
+                        }),
+                        SetEntry::Action(QuickAction {
+                            name: "Interact".into(),
+                            key: "E".into(),
+                            icon: "◆".into(),
+                            command: "interact".into(),
+                            color: "#14b8a6".into(),
+                            width: 90.0,
+                            height: 28.0,
+                            ..default()
+                        }),
+                        SetEntry::Action(QuickAction {
+                            name: "Inventory".into(),
+                            key: "I".into(),
+                            icon: "◈".into(),
+                            command: "none".into(),
+                            color: "#8b5cf6".into(),
+                            width: 80.0,
+                            height: 28.0,
+                            ..default()
+                        }),
+                    ],
+                },
+                ActionSet {
+                    name: "Stealth".into(),
+                    opacity: 1.0,
+                    input_override: false,
+                    entries: vec![
+                        SetEntry::WheelSet(WheelSetData {
+                            name: "Stealth Wheels".into(),
+                            switch_key: String::new(),
+                            wheels: vec![WheelData::new("Stealth Wheel", 4)],
+                        }),
+                        SetEntry::Action(QuickAction {
+                            name: "Hide".into(),
+                            key: "H".into(),
+                            icon: "◐".into(),
+                            command: "crouch".into(),
+                            color: "#6366f1".into(),
+                            width: 70.0,
+                            height: 28.0,
+                            ..default()
+                        }),
+                    ],
+                },
+            ],
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// HUD STATE, COMPONENTS, AND RENDERING
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// Tags the root UI entity of the full-screen HUD.  Despawned on each rebuild.
+#[derive(Component)]
+pub struct WheelHudRoot;
+
+/// Tags `Mesh2d` entities for the Pie-shape segment preview.
+/// Despawned on each HUD rebuild.
+#[derive(Component)]
+pub struct WheelMeshPreview;
+
+/// Shared state read by both the HUD renderer and the editor sidebar.
+#[derive(Resource)]
+pub struct WheelHudState {
+    pub dirty: bool,
+    /// Whether the HUD wheel overlay is currently open/visible.
+    pub open: bool,
+    /// Which [`ActionSet`] is currently displayed.
+    pub active_set: usize,
+    /// Whether the editor sidebar overlay is open.
+    pub editor_open: bool,
+    /// Highlighted segment: (set, entry, wheel, slot).
+    pub highlighted: Option<(usize, usize, Option<usize>, usize)>,
+}
+impl Default for WheelHudState {
+    fn default() -> Self {
+        Self {
+            dirty: true,
+            open: false,
+            active_set: 0,
+            editor_open: false,
+            highlighted: None,
+        }
+    }
+}
+
+/// Interactive button in the HUD (set tabs, edit toggle, etc.).
+#[derive(Component, Clone)]
+pub struct WheelHudButton {
+    pub action: WheelHudAction,
+    pub base: Color,
+}
+
+/// Actions that can be triggered directly from the HUD.
+#[derive(Clone, Debug)]
+pub enum WheelHudAction {
+    SetActiveSet(usize),
+    PrevSet,
+    NextSet,
+    ToggleEditor,
+}
+
+// ── HUD palette ──────────────────────────────────────────────────────────────────
+pub const HUD_BG: Color = Color::srgb(0.055, 0.067, 0.086);
+pub const HUD_SIDEBAR_BG: Color = Color::srgb(0.043, 0.055, 0.075);
+pub const HUD_SIDEBAR_BORDER: Color = Color::srgb(0.10, 0.12, 0.15);
+pub const HUD_GREEN: Color = Color::srgb(0.30, 0.74, 0.40);
+pub const HUD_GREEN_BG: Color = Color::srgba(0.30, 0.74, 0.40, 0.14);
+pub const HUD_TEXT: Color = Color::srgb(0.74, 0.79, 0.85);
+pub const HUD_DIM: Color = Color::srgb(0.42, 0.47, 0.54);
+pub const HUD_DIMMER: Color = Color::srgb(0.30, 0.34, 0.40);
+pub const HUD_ICON: Color = Color::srgb(0.45, 0.53, 0.61);
+pub const HUD_AMBER: Color = Color::srgb(0.82, 0.66, 0.25);
+pub const HUD_BLUE: Color = Color::srgb(0.38, 0.62, 0.95);
+pub const HUD_TEAL: Color = Color::srgb(0.52, 0.69, 0.75);
+pub const HUD_BADGE_BORDER: Color = Color::srgb(0.26, 0.30, 0.36);
+pub const HUD_ROW_SEL: Color = Color::srgba(0.38, 0.62, 0.95, 0.16);
+pub const HUD_PANEL_CARD: Color = Color::srgb(0.08, 0.10, 0.15);
+
+// ── internal helpers ─────────────────────────────────────────────────────────────
+
+fn hud_child(
+    commands: &mut Commands,
+    parent: Entity,
+    scene: impl bevy::scene::prelude::Scene,
+) -> Entity {
+    let e = commands.spawn_scene(scene).id();
+    commands.entity(parent).add_child(e);
+    e
+}
+
+fn hud_text(s: &str, size: f32, color: Color) -> impl bevy::scene::prelude::Scene {
+    let s = s.to_string();
+    let sz = size;
+    bsn! {
+        Text({s})
+        TextFont { font_size: {FontSize::Px(sz)} }
+        TextColor({color})
+    }
+}
+
+fn hud_clickable(
+    commands: &mut Commands,
+    parent: Entity,
+    scene: impl bevy::scene::prelude::Scene,
+    action: WheelHudAction,
+    base: Color,
+) -> Entity {
+    let e = commands
+        .spawn_scene(scene)
+        .insert(WheelHudButton { action, base })
+        .id();
+    commands.entity(parent).add_child(e);
+    e
+}
+
+/// Parse `#rrggbb` hex string into a Bevy [`Color`].
+pub fn parse_hex_color(hex: &str, alpha: f32) -> Color {
+    let s = hex.trim_start_matches('#');
+    if s.len() == 6 {
+        if let (Ok(r), Ok(g), Ok(b)) = (
+            u8::from_str_radix(&s[0..2], 16),
+            u8::from_str_radix(&s[2..4], 16),
+            u8::from_str_radix(&s[4..6], 16),
+        ) {
+            return Color::srgba(r as f32 / 255., g as f32 / 255., b as f32 / 255., alpha);
+        }
+    }
+    Color::srgba(0.23, 0.51, 0.96, alpha)
+}
+
+pub fn hud_label_or(key: &str) -> String {
+    if key.is_empty() {
+        "—".into()
+    } else {
+        key.into()
+    }
+}
+
+// ── canvas root ──────────────────────────────────────────────────────────────────
+
+fn hud_canvas_root() -> impl bevy::scene::prelude::Scene {
+    bsn! {
+        Node {
+            position_type: PositionType::Absolute,
+            left: {Val::Px(0.)}, top: {Val::Px(0.)},
+            right: {Val::Px(0.)}, bottom: {Val::Px(0.)},
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::Center,
+            align_items: AlignItems::Center,
+        }
+        BackgroundColor({HUD_BG})
+    }
+}
+
+// ── main HUD build ───────────────────────────────────────────────────────────────
+
+pub fn build_hud_canvas(
+    commands: &mut Commands,
+    cfg: &QuickActionConfig,
+    hud: &WheelHudState,
+    _win_w: f32,
+    _win_h: f32,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+) {
+    let root = commands
+        .spawn_scene(hud_canvas_root())
+        .insert(WheelHudRoot)
+        .id();
+
+    // Nothing to render while the wheel overlay is closed.
+    if !hud.open {
+        commands.entity(root).insert(BackgroundColor(Color::NONE));
+        return;
+    }
+
+    // Edit toggle button — visible only while the wheel is open, hidden when
+    // the editor sidebar is already showing.
+    if !hud.editor_open {
+        let btn = hud_clickable(
+            commands,
+            root,
+            bsn! {
+                Node {
+                    position_type: PositionType::Absolute,
+                    top: {Val::Px(14.)}, left: {Val::Px(14.)},
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    column_gap: {Val::Px(5.)},
+                    padding: {UiRect::axes(Val::Px(10.), Val::Px(6.))},
+                    border: {UiRect::all(Val::Px(1.))},
+                    border_radius: {BorderRadius::all(Val::Px(5.))},
+                }
+                BorderColor::all(HUD_BADGE_BORDER)
+                BackgroundColor({HUD_PANEL_CARD})
+                Button
+            },
+            WheelHudAction::ToggleEditor,
+            HUD_PANEL_CARD,
+        );
+        hud_child(commands, btn, hud_text("⚙", 12., HUD_DIM));
+        hud_child(commands, btn, hud_text("Edit", 10., HUD_DIM));
+    }
+
+    // Set tabs at the top centre (only when enabled in config).
+    if cfg.show_set_bar {
+        build_hud_set_tabs(commands, root, cfg, hud);
+    }
+
+    if cfg.sets.is_empty() {
+        hud_child(
+            commands,
+            root,
+            hud_text("No sets — open the editor to add one.", 12., HUD_DIMMER),
+        );
+        return;
+    }
+
+    // Offset wheel rightward when the sidebar is open so it stays centred in
+    // the exposed area. (Pie-shape mesh uses world-space coordinates.)
+    let sidebar_w = if hud.editor_open { 260.0_f32 } else { 0.0_f32 };
+    let wheel_cx = sidebar_w / 2.0;
+    let wheel_cy = 0.0_f32;
+
+    if let Some(set) = cfg.sets.get(hud.active_set) {
+        let mut rendered = false;
+        for (ei, entry) in set.entries.iter().enumerate() {
+            match entry {
+                SetEntry::Wheel(w) => {
+                    build_centered_wheel_hud(
+                        commands,
+                        root,
+                        w,
+                        hud.active_set,
+                        ei,
+                        None,
+                        hud.highlighted,
+                        wheel_cx,
+                        wheel_cy,
+                        meshes,
+                        materials,
+                    );
+                    rendered = true;
+                    break;
+                }
+                SetEntry::WheelSet(ws) => {
+                    if let Some(w) = ws.wheels.first() {
+                        build_centered_wheel_hud(
+                            commands,
+                            root,
+                            w,
+                            hud.active_set,
+                            ei,
+                            Some(0),
+                            hud.highlighted,
+                            wheel_cx,
+                            wheel_cy,
+                            meshes,
+                            materials,
+                        );
+                        rendered = true;
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+        if !rendered {
+            hud_child(
+                commands,
+                root,
+                hud_text("No wheels in this set.", 11., HUD_DIMMER),
+            );
+        }
+        build_hud_action_buttons(commands, root, set);
+    }
+}
+
+/// Renders a radial wheel preview centred in the HUD.
+#[allow(clippy::too_many_arguments)]
+pub fn build_centered_wheel_hud(
+    commands: &mut Commands,
+    parent: Entity,
+    wheel: &WheelData,
+    set: usize,
+    entry: usize,
+    w_idx: Option<usize>,
+    highlighted: Option<(usize, usize, Option<usize>, usize)>,
+    wheel_cx: f32,
+    wheel_cy: f32,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+) {
+    let menu = wheel.to_wheel_menu();
+    let hub = hud_child(commands, parent, wheel_hub());
+
+    let is_pie = wheel.segment_shape == SegmentShape::Pie;
+    if !is_pie {
+        hud_child(commands, hub, wheel_bg_disc(menu.radius));
+    }
+    hud_child(commands, hub, wheel_outer_ring(menu.radius));
+
+    let slice_angle = std::f32::consts::TAU / menu.slices.max(1) as f32;
+    let base_pw = (2.0 * menu.radius * (slice_angle / 2.0).sin() * 0.72).max(48.0);
+    let base_ph = ((menu.radius - menu.inner_radius) * 0.85).max(40.0);
+    let panel_w = (base_pw * wheel.segment_scale).max(32.0);
+    let panel_h = (base_ph * wheel.segment_scale).max(24.0);
+    let min_dim = panel_w.min(panel_h);
+    let highlight_col = parse_hex_color(&wheel.highlight_color, 1.0);
+    let slice_bg = Color::srgb(0.13, 0.17, 0.23);
+    let label_c = Color::srgb(0.84, 0.89, 0.94);
+    let label_sz = (panel_h * 0.18).clamp(9.0, 13.0);
+
+    for (i, slot) in wheel.slots.iter().enumerate() {
+        if i >= menu.slices {
+            break;
+        }
+        let is_sel = highlighted
+            .map(|(s, e, w, sl)| s == set && e == entry && w == w_idx && sl == i)
+            .unwrap_or(false);
+        let seg_color = if is_sel { highlight_col } else { slice_bg };
+
+        if is_pie {
+            let (a0, a1) = slice_angles(&menu, i);
+            let mesh = meshes.add(crate::mesh::wedge(menu.inner_radius, menu.radius, a0, a1));
+            let mat = materials.add(ColorMaterial::from_color(seg_color));
+            commands.spawn((
+                Mesh2d(mesh),
+                MeshMaterial2d(mat),
+                Transform::from_xyz(wheel_cx, wheel_cy, 0.5),
+                WheelMeshPreview,
+            ));
+            let ctr = slice_center(&menu, i);
+            let panel_e = commands
+                .spawn_scene(bsn! {
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left:   {Val::Px(ctr.x - panel_w / 2.0)},
+                        top:    {Val::Px(-ctr.y - panel_h / 2.0)},
+                        width:  {Val::Px(panel_w)}, height: {Val::Px(panel_h)},
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        flex_direction: FlexDirection::Column,
+                        padding: {UiRect::all(Val::Px(6.))},
+                    }
+                    BackgroundColor({Color::NONE})
+                })
+                .id();
+            commands.entity(hub).add_child(panel_e);
+            if wheel.show_labels {
+                hud_child(
+                    commands,
+                    panel_e,
+                    wheel_slice_label(slot.name.to_uppercase(), label_sz, label_c),
+                );
+            }
+            if wheel.show_icon && !slot.icon.is_empty() {
+                hud_child(
+                    commands,
+                    panel_e,
+                    wheel_slice_label(slot.icon.clone(), label_sz * 1.3, label_c),
+                );
+            } else if wheel.show_labels {
+                hud_child(
+                    commands,
+                    panel_e,
+                    bsn! { Node { width: {Val::Px(4.)}, height: {Val::Px(4.)} } },
+                );
+            }
+        } else {
+            let seg_br = match wheel.segment_shape {
+                SegmentShape::Square => BorderRadius::all(Val::Px(0.0)),
+                SegmentShape::Rounded => BorderRadius::all(Val::Px(min_dim * 0.14)),
+                SegmentShape::Circle => BorderRadius::all(Val::Px(min_dim * 0.5)),
+                SegmentShape::Wedge => BorderRadius {
+                    top_left: Val::Px(min_dim * 0.40),
+                    top_right: Val::Px(min_dim * 0.40),
+                    bottom_left: Val::Px(min_dim * 0.05),
+                    bottom_right: Val::Px(min_dim * 0.05),
+                },
+                SegmentShape::Pie => unreachable!(),
+            };
+            let ctr = slice_center(&menu, i);
+            let panel_e = commands
+                .spawn_scene(bsn! {
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left:   {Val::Px(ctr.x - panel_w / 2.0)},
+                        top:    {Val::Px(-ctr.y - panel_h / 2.0)},
+                        width:  {Val::Px(panel_w)}, height: {Val::Px(panel_h)},
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        flex_direction: FlexDirection::Column,
+                        padding: {UiRect::all(Val::Px(6.))},
+                        border_radius: {seg_br},
+                    }
+                    BackgroundColor({seg_color})
+                })
+                .id();
+            commands.entity(hub).add_child(panel_e);
+            if wheel.show_labels {
+                hud_child(
+                    commands,
+                    panel_e,
+                    wheel_slice_label(slot.name.to_uppercase(), label_sz, label_c),
+                );
+            }
+            if wheel.show_icon && !slot.icon.is_empty() {
+                hud_child(
+                    commands,
+                    panel_e,
+                    wheel_slice_label(slot.icon.clone(), label_sz * 1.3, label_c),
+                );
+            } else if wheel.show_labels {
+                hud_child(
+                    commands,
+                    panel_e,
+                    bsn! { Node { width: {Val::Px(4.)}, height: {Val::Px(4.)} } },
+                );
+            }
+        }
+    }
+
+    // Centre hub ring.
+    let disc_r = (menu.inner_radius - 4.0).max(8.0);
+    let ring_col = Color::srgb(0.82, 0.64, 0.16);
+    let hub_bg = Color::srgb(0.08, 0.10, 0.14);
+    let center = hud_child(
+        commands,
+        hub,
+        wheel_center_ring(disc_r, hub_bg, ring_col, 3.0),
+    );
+    let hub_label = wheel
+        .name
+        .chars()
+        .next()
+        .map(|c| c.to_string())
+        .unwrap_or_default();
+    hud_child(
+        commands,
+        center,
+        wheel_slice_label(hub_label, (disc_r * 0.60).max(9.0), ring_col),
+    );
+}
+
+/// Floating quick-action buttons in the bottom-right corner.
+fn build_hud_action_buttons(commands: &mut Commands, parent: Entity, set: &ActionSet) {
+    let btns: Vec<&QuickAction> = set
+        .entries
+        .iter()
+        .filter_map(|e| {
+            if let SetEntry::Action(a) = e {
+                Some(a)
+            } else {
+                None
+            }
+        })
+        .filter(|a| a.enabled)
+        .collect();
+    if btns.is_empty() {
+        return;
+    }
+
+    let container = commands
+        .spawn_scene(bsn! {
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: {Val::Px(60.)}, right: {Val::Px(36.)},
+                flex_direction: FlexDirection::Column,
+                row_gap: {Val::Px(8.)},
+                align_items: AlignItems::FlexEnd,
+            }
+        })
+        .id();
+    commands.entity(parent).add_child(container);
+
+    for qa in btns.iter().rev() {
+        let eff = (set.opacity * qa.opacity).clamp(0.05, 1.0);
+        let w = qa.width.max(40.0);
+        let h = qa.height.max(20.0);
+        let bg = parse_hex_color(&qa.color, eff * 0.85);
+        let tc = HUD_TEXT.with_alpha(eff);
+        let bc = HUD_BADGE_BORDER.with_alpha(eff);
+
+        let row = hud_child(
+            commands,
+            container,
+            bsn! {
+                Node {
+                    flex_direction: FlexDirection::Row,
+                    align_items: AlignItems::Center,
+                    column_gap: {Val::Px(5.)},
+                }
+            },
+        );
+        if !qa.key.is_empty() {
+            let kb = hud_child(
+                commands,
+                row,
+                bsn! {
+                    Node {
+                        width: {Val::Px(16.)}, height: {Val::Px(14.)},
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: {UiRect::all(Val::Px(1.))},
+                        border_radius: {BorderRadius::all(Val::Px(2.))},
+                    }
+                    BorderColor::all(HUD_BADGE_BORDER)
+                },
+            );
+            hud_child(commands, kb, hud_text(&qa.key, 7., HUD_DIM));
+        }
+        let btn_node = commands
+            .spawn_scene(bsn! {
+                Node {
+                    width: {Val::Px(w)}, height: {Val::Px(h)},
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    border: {UiRect::all(Val::Px(1.))},
+                    border_radius: {BorderRadius::all(Val::Px(4.))},
+                }
+                BackgroundColor({bg})
+                BorderColor::all(bc)
+            })
+            .id();
+        commands.entity(row).add_child(btn_node);
+        hud_child(commands, btn_node, hud_text(&qa.name, 10., tc));
+    }
+}
+
+/// Set-selection tab bar pinned to the bottom of the HUD.
+fn build_hud_set_tabs(
+    commands: &mut Commands,
+    parent: Entity,
+    cfg: &QuickActionConfig,
+    hud: &WheelHudState,
+) {
+    let bar = commands
+        .spawn_scene(bsn! {
+            Node {
+                position_type: PositionType::Absolute,
+                top: {Val::Px(12.)}, left: {Val::Px(0.)}, right: {Val::Px(0.)},
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+            }
+        })
+        .id();
+    commands.entity(parent).add_child(bar);
+
+    let prev_idx = hud.active_set.saturating_sub(1);
+    let larrow = hud_clickable(
+        commands,
+        bar,
+        bsn! {
+            Node {
+                width: {Val::Px(28.)}, height: {Val::Px(32.)},
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                border: {UiRect::all(Val::Px(1.))},
+                border_radius: {BorderRadius::left(Val::Px(6.))},
+            }
+            BorderColor::all(HUD_SIDEBAR_BORDER)
+            BackgroundColor({HUD_PANEL_CARD})
+            Button
+        },
+        WheelHudAction::SetActiveSet(prev_idx),
+        HUD_PANEL_CARD,
+    );
+    hud_child(commands, larrow, hud_text("‹", 14., HUD_DIM));
+
+    for (i, set) in cfg.sets.iter().enumerate() {
+        let active = i == hud.active_set;
+        let (bg, tc, bc) = if active {
+            (Color::srgba(0.38, 0.62, 0.95, 0.20), HUD_TEXT, HUD_BLUE)
+        } else {
+            (HUD_PANEL_CARD, HUD_DIM, HUD_SIDEBAR_BORDER)
+        };
+        let tab = hud_clickable(
+            commands,
+            bar,
+            bsn! {
+                Node {
+                    padding: {UiRect::axes(Val::Px(14.), Val::Px(7.))},
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    border: {UiRect::all(Val::Px(1.))},
+                }
+                BorderColor::all(bc)
+                BackgroundColor({bg})
+                Button
+            },
+            WheelHudAction::SetActiveSet(i),
+            bg,
+        );
+        hud_child(commands, tab, hud_text(&set.name, 11., tc));
+    }
+
+    let next_idx = (hud.active_set + 1).min(cfg.sets.len().saturating_sub(1));
+    let rarrow = hud_clickable(
+        commands,
+        bar,
+        bsn! {
+            Node {
+                width: {Val::Px(28.)}, height: {Val::Px(32.)},
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                border: {UiRect::all(Val::Px(1.))},
+                border_radius: {BorderRadius::right(Val::Px(6.))},
+            }
+            BorderColor::all(HUD_SIDEBAR_BORDER)
+            BackgroundColor({HUD_PANEL_CARD})
+            Button
+        },
+        WheelHudAction::SetActiveSet(next_idx),
+        HUD_PANEL_CARD,
+    );
+    hud_child(commands, rarrow, hud_text("›", 14., HUD_DIM));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// WheelHudPlugin
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/// Renders a full-screen HUD showing the active [`QuickActionConfig`] set.
+///
+/// Add this plugin (alongside [`WheelMenuPlugin`]) to display wheels and
+/// quick-action buttons.  Add [`crate::editor::QuickActionEditorPlugin`] on top
+/// to get the editor sidebar.
+///
+/// ```ignore
+/// app.add_plugins((WheelMenuPlugin, WheelHudPlugin));
+/// ```
+/// Backward-compat wrapper — use [`QuickActionHudPlugin::default()`] instead.
+///
+/// Provides core wheel logic + HUD canvas (no editor).
+pub struct WheelHudPlugin;
+impl Plugin for WheelHudPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(QuickActionHudPlugin::default());
+    }
+}
+
+fn hud_button_feedback(mut buttons: Query<(&WheelHudButton, &Interaction, &mut BackgroundColor)>) {
+    for (btn, interaction, mut bg) in &mut buttons {
+        *bg = match interaction {
+            Interaction::Hovered => BackgroundColor(Color::srgba(1., 1., 1., 0.05)),
+            Interaction::Pressed => BackgroundColor(Color::srgba(0.38, 0.62, 0.95, 0.16)),
+            Interaction::None => BackgroundColor(btn.base),
+        };
+    }
+}
+
+/// Reads the right-stick axis ([`WheelNavAction::Navigate`]) and updates
+/// [`WheelHudState::highlighted`] while the HUD wheel is open.
+///
+/// Uses **release-to-use**: the slot that was highlighted when the stick
+/// returns to the dead-zone is emitted as a [`HudSegmentSelected`] event.
+fn hud_stick_nav(
+    nav_q: Query<&ActionState<WheelNavAction>>,
+    mut hud: ResMut<WheelHudState>,
+    cfg: Res<QuickActionConfig>,
+    mut select_ev: MessageWriter<HudSegmentSelected>,
+) {
+    if !hud.open {
+        return;
+    }
+    let Ok(action) = nav_q.single() else {
+        return;
+    };
+    let stick = action.axis_pair(&WheelNavAction::Navigate);
+
+    // Locate the first Wheel / WheelSet entry in the active set.
+    let Some(set) = cfg.sets.get(hud.active_set) else {
+        return;
+    };
+    let mut found: Option<(usize, Option<usize>, usize)> = None;
+    for (ei, entry) in set.entries.iter().enumerate() {
+        match entry {
+            SetEntry::Wheel(w) => {
+                found = Some((ei, None, w.slots.len()));
+                break;
+            }
+            SetEntry::WheelSet(ws) => {
+                if let Some(w) = ws.wheels.first() {
+                    found = Some((ei, Some(0), w.slots.len()));
+                }
+                break;
+            }
+            _ => {}
+        }
+    }
+    let Some((entry_idx, wheel_idx, n_slots)) = found else {
+        return;
+    };
+    if n_slots == 0 {
+        return;
+    }
+
+    const DEADZONE: f32 = 0.2;
+    let prev = hud.highlighted;
+
+    let new_highlight = if stick.length() < DEADZONE {
+        None
+    } else {
+        // Same angle mapping as WheelData::to_wheel_menu() arc_offset.
+        let a = stick.y.atan2(stick.x);
+        let rel = (a - std::f32::consts::FRAC_PI_6).rem_euclid(std::f32::consts::TAU);
+        let idx = ((rel / std::f32::consts::TAU) * n_slots as f32).floor() as usize;
+        Some((hud.active_set, entry_idx, wheel_idx, idx.min(n_slots - 1)))
+    };
+
+    if prev != new_highlight {
+        // Release-to-use: emit selection when stick returns to dead-zone.
+        if let (Some((s, e, w, slot)), None) = (prev, new_highlight) {
+            select_ev.write(HudSegmentSelected {
+                set: s,
+                entry: e,
+                wheel: w,
+                slot,
+            });
+        }
+        hud.highlighted = new_highlight;
+        hud.dirty = true;
+    }
+}
+
+fn rebuild_hud(
+    mut commands: Commands,
+    mut hud: ResMut<WheelHudState>,
+    cfg: Res<QuickActionConfig>,
+    windows: Query<&Window>,
+    old_hud: Query<Entity, With<WheelHudRoot>>,
+    old_meshes: Query<Entity, With<WheelMeshPreview>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    if !hud.dirty {
+        return;
+    }
+    hud.dirty = false;
+
+    for e in &old_hud {
+        commands.entity(e).despawn();
+    }
+    for e in &old_meshes {
+        commands.entity(e).despawn();
+    }
+
+    if !cfg.sets.is_empty() && hud.active_set >= cfg.sets.len() {
+        hud.active_set = cfg.sets.len() - 1;
+    }
+
+    let win = windows.iter().next();
+    let win_w = win.map(|w| w.width()).unwrap_or(1280.0);
+    let win_h = win.map(|w| w.height()).unwrap_or(768.0);
+    build_hud_canvas(
+        &mut commands,
+        &cfg,
+        &hud,
+        win_w,
+        win_h,
+        &mut meshes,
+        &mut materials,
+    );
+}
+
+/// Runs in [`PostStartup`] when the HUD is enabled.
+///
+/// Reads [`CONFIG_FILE`] from the working directory and, if it exists and
+/// parses cleanly, replaces the active [`QuickActionConfig`] resource.
+///
+/// Game `Startup` systems run first (setting game-specific defaults), then
+/// this silently applies the user's saved preferences on top.
+fn try_autoload_config(mut cfg: ResMut<QuickActionConfig>, mut hud: ResMut<WheelHudState>) {
+    match std::fs::read_to_string(CONFIG_FILE) {
+        Err(_) => {} // File absent — keep whatever Startup set.
+        Ok(s) => match ron::from_str::<QuickActionConfig>(&s) {
+            Ok(loaded) => {
+                *cfg = loaded;
+                hud.dirty = true;
+                info!("[wheel_menu] config auto-loaded from {CONFIG_FILE}");
+            }
+            Err(e) => warn!("[wheel_menu] failed to parse {CONFIG_FILE}: {e}"),
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ron_config_parses() {
+        let src = include_str!("../quickactions_config.ron");
+        let _: QuickActionConfig = ron::from_str(src).expect("RON round-trip failed");
     }
 }
