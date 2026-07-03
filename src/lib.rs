@@ -17,6 +17,177 @@ use std::collections::HashMap;
 /// running via `cargo run`).
 pub const CONFIG_FILE: &str = "quickactions_config.ron";
 
+// ─── gamepad icon set ─────────────────────────────────────────────────────────────
+
+/// Which family of controller button icons to show in the editor UI.
+///
+/// Auto-detected from the connected gamepad's USB vendor/product IDs and device
+/// name when a controller connects; defaults to [`GamepadIconSet::Xbox`] when no
+/// controller is present or the type is unknown.
+///
+/// Icon assets live under `assets/icons/<set>/Default/`.
+#[derive(Resource, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GamepadIconSet {
+    /// Xbox / generic controller — A / B / X / Y / LB / RB / LT / RT …
+    #[default]
+    Xbox,
+    /// PlayStation 4 DualShock 4 — Cross / Circle / Square / Triangle …
+    PS4,
+    /// PlayStation 5 DualSense — Cross / Circle / Square / Triangle …
+    PS5,
+    /// Nintendo Switch Pro Controller / Joy-Con — B / A / Y / X / + / − …
+    Switch,
+}
+
+impl GamepadIconSet {
+    /// Base asset path (relative to `assets/`) for this set's Default style.
+    pub fn base_path(self) -> &'static str {
+        match self {
+            Self::Xbox => "icons/XGamepad/Default",
+            Self::PS4 => "icons/P4Gamepad/Default",
+            Self::PS5 => "icons/P5Gamepad/Default",
+            Self::Switch => "icons/SGamepad/Default",
+        }
+    }
+
+    /// Returns the asset path for a gamepad button label (e.g. `"LB"`, `"A"`,
+    /// `"Start"`) as produced by [`editor::gamepad_btn_label`].
+    ///
+    /// Returns `None` when the label has no mapped asset for this set.
+    pub fn icon_path(self, label: &str) -> Option<String> {
+        let base = self.base_path();
+        let file: &str = match self {
+            Self::Xbox => match label {
+                "A" => "T_X_A_Color.png",
+                "B" => "T_X_B_Color.png",
+                "X" => "T_X_X_Color.png",
+                "Y" => "T_X_Y_Color.png",
+                "LB" => "T_X_LB.png",
+                "RB" => "T_X_RB.png",
+                "LT" => "T_X_LT.png",
+                "RT" => "T_X_RT.png",
+                "Start" => "T_X_Share.png",
+                "Select" => "T_X_Share-1.png",
+                "LS" => "T_X_Left_Stick_Click.png",
+                "RS" => "T_X_Right_Stick_Click.png",
+                "DUp" => "T_X_Dpad_Up.png",
+                "DDown" => "T_X_Dpad_Down.png",
+                "DLeft" => "T_X_Dpad_Left.png",
+                "DRight" => "T_X_Dpad_Right.png",
+                _ => return None,
+            },
+            Self::PS4 => match label {
+                "A" => "T_P4_Cross.png",
+                "B" => "T_P4_Circle.png",
+                "X" => "T_P4_Square.png",
+                "Y" => "T_P4_Triangle.png",
+                "LB" => "T_P4_L1.png",
+                "RB" => "T_P4_R1.png",
+                "LT" => "T_P4_L2.png",
+                "RT" => "T_P4_R2.png",
+                "Start" => "T_P4_Options.png",
+                "Select" => "T_P4_Share.png",
+                "LS" => "T_P4_Left_Stick_Click.png",
+                "RS" => "T_P4_Right_Stick_Click.png",
+                "DUp" => "T_P4_Dpad_UP.png",
+                "DDown" => "T_P4_Dpad_Down.png",
+                "DLeft" => "T_P4_Dpad_Left.png",
+                "DRight" => "T_P4_Dpad_Right.png",
+                _ => return None,
+            },
+            Self::PS5 => match label {
+                "A" => "T_P5_Cross.png",
+                "B" => "T_P5_Circle.png",
+                "X" => "T_P5_Square.png",
+                "Y" => "T_P5_Triangle.png",
+                "LB" => "T_P5_L1.png",
+                "RB" => "T_P5_R1.png",
+                "LT" => "T_P5_L2.png",
+                "RT" => "T_P5_R2.png",
+                "Start" => "T_P5_Options.png",
+                "Select" => "T_P5_Share.png",
+                "LS" => "T_P5_Left_Stick_Click_Alt.png",
+                "RS" => "T_P5_Right_Stick_Click_Alt.png",
+                "DUp" => "T_P5_Dpad_UP.png",
+                "DDown" => "T_P5_Dpad_Down.png",
+                "DLeft" => "T_P5_Dpad_Left.png",
+                "DRight" => "T_P5_Dpad_Right.png",
+                _ => return None,
+            },
+            Self::Switch => match label {
+                // Nintendo physical layout: South=B, East=A, West=Y, North=X
+                "A" => "T_S_B.png",
+                "B" => "T_S_A.png",
+                "X" => "T_S_Y.png",
+                "Y" => "T_S_X.png",
+                "LB" => "T_S_LB.png",
+                "RB" => "T_S_RB.png",
+                "LT" => "T_S_LT.png",
+                "RT" => "T_S_RT.png",
+                "Start" => "T_S_Plus.png",
+                "Select" => "T_S_Minus.png",
+                "LS" => "T_S_L.png",
+                "RS" => "T_S_R.png",
+                "DUp" => "T_S_Dpad_Up.png",
+                "DDown" => "T_S_Dpad_Down.png",
+                "DLeft" => "T_S_Dpad_Left.png",
+                "DRight" => "T_S_Dpad_Right.png",
+                _ => return None,
+            },
+        };
+        Some(format!("{}/{}", base, file))
+    }
+
+    /// Detect icon set from USB vendor / product IDs reported by gilrs.
+    pub fn from_ids(vendor: Option<u16>, product: Option<u16>) -> Self {
+        match (vendor, product) {
+            (Some(0x054C), Some(0x0CE6)) => Self::PS5, // DualSense
+            (Some(0x054C), _) => Self::PS4,            // Other Sony
+            (Some(0x057E), _) => Self::Switch,         // Nintendo
+            (Some(0x045E), _) => Self::Xbox,           // Microsoft
+            _ => Self::Xbox,
+        }
+    }
+
+    /// Detect icon set from the controller's human-readable name string.
+    pub fn from_name(name: &str) -> Self {
+        let n = name.to_lowercase();
+        if n.contains("dualsense") || n.contains("ps5") {
+            Self::PS5
+        } else if n.contains("dualshock") || n.contains("ps4") || n.contains("ps3") {
+            Self::PS4
+        } else if n.contains("switch")
+            || n.contains("joy-con")
+            || n.contains("joycon")
+            || n.contains("pro controller")
+            || n.contains("nintendo")
+        {
+            Self::Switch
+        } else {
+            Self::Xbox
+        }
+    }
+}
+
+/// System: updates [`GamepadIconSet`] when a gamepad is detected.
+/// USB IDs take priority; controller name is used as a fallback.
+fn detect_gamepad_icon_set(
+    added: Query<(&Gamepad, Option<&Name>), Added<Gamepad>>,
+    mut icon_set: ResMut<GamepadIconSet>,
+) {
+    for (gamepad, name) in &added {
+        let by_id = GamepadIconSet::from_ids(gamepad.vendor_id(), gamepad.product_id());
+        *icon_set = if by_id != GamepadIconSet::Xbox {
+            by_id
+        } else {
+            // IDs inconclusive — try device name
+            name.map(|n| GamepadIconSet::from_name(n.as_str()))
+                .unwrap_or(GamepadIconSet::Xbox)
+        };
+        break; // first connected controller wins
+    }
+}
+
 /// Leafwing-backed input actions for gamepad wheel navigation.
 ///
 /// Attach an `InputMap<WheelNavAction>` + `ActionState<WheelNavAction>` to an entity
@@ -801,11 +972,18 @@ impl Plugin for QuickActionHudPlugin {
         if self.hud {
             app.init_resource::<QuickActionConfig>()
                 .init_resource::<WheelHudState>()
+                .init_resource::<GamepadIconSet>()
                 .add_message::<HudSegmentSelected>()
                 .add_systems(PostStartup, try_autoload_config)
                 .add_systems(
                     Update,
-                    (hud_button_feedback, hud_stick_nav, rebuild_hud).chain(),
+                    (
+                        detect_gamepad_icon_set,
+                        hud_button_feedback,
+                        hud_stick_nav,
+                        rebuild_hud,
+                    )
+                        .chain(),
                 );
         }
 
@@ -1420,37 +1598,41 @@ pub fn wheel_center_ring(
 ///
 /// Spawn as a child of [`wheel_hub`] **before** the slices so it sits at the
 /// back of the z-order.
-pub fn wheel_bg_disc(outer_radius: f32) -> impl bevy::scene::prelude::Scene {
+pub fn wheel_bg_disc(outer_radius: f32, color: Color) -> impl bevy::scene::prelude::Scene {
     let r = outer_radius + 4.0;
     bsn! {
         Node {
             position_type: PositionType::Absolute,
-            left: {px(-r)},
-            top: {px(-r)},
-            width: {px(r * 2.0)},
-            height: {px(r * 2.0)},
-            border_radius: {BorderRadius::all(px(r))},
+            left: {Val::Px(-r)},
+            top: {Val::Px(-r)},
+            width: {Val::Px(r * 2.0)},
+            height: {Val::Px(r * 2.0)},
+            border_radius: {BorderRadius::all(Val::Px(r))},
         }
-        BackgroundColor({Color::srgb(0.096, 0.118, 0.157)})
+        BackgroundColor({color})
     }
 }
 
 /// A thin amber/gold ring just outside the wheel — approximates the dashed
 /// outer border visible in the reference screenshots.
-pub fn wheel_outer_ring(outer_radius: f32) -> impl bevy::scene::prelude::Scene {
+pub fn wheel_outer_ring(
+    outer_radius: f32,
+    color: Color,
+    border_w: f32,
+) -> impl bevy::scene::prelude::Scene {
     let r = outer_radius + 18.0;
     bsn! {
         Node {
             position_type: PositionType::Absolute,
-            left: {px(-r)},
-            top: {px(-r)},
-            width: {px(r * 2.0)},
-            height: {px(r * 2.0)},
-            border_radius: {BorderRadius::all(px(r))},
-            border: {UiRect::all(px(1.5))},
+            left: {Val::Px(-r)},
+            top: {Val::Px(-r)},
+            width: {Val::Px(r * 2.0)},
+            height: {Val::Px(r * 2.0)},
+            border_radius: {BorderRadius::all(Val::Px(r))},
+            border: {UiRect::all(Val::Px(border_w))},
         }
         BackgroundColor({Color::NONE})
-        BorderColor::all(Color::srgba(0.75, 0.58, 0.15, 0.40))
+        BorderColor::all(color)
     }
 }
 
@@ -1668,6 +1850,9 @@ fn _default_highlight_color() -> String {
 fn _default_segment_scale() -> f32 {
     1.0
 }
+fn _default_border_width() -> f32 {
+    2.0
+}
 
 // ── slot / item data ─────────────────────────────────────────────────────────────
 
@@ -1778,6 +1963,24 @@ pub struct WheelData {
     /// Hex color for the outer-radius border ring; empty = no border.
     #[serde(default)]
     pub outer_border: String,
+    /// Width in px of the outer border ring; only used when `outer_border` is set.
+    #[serde(default = "_default_border_width")]
+    pub outer_border_width: f32,
+    /// Width in px of the inner hub ring; only used when `inner_border` is set.
+    #[serde(default = "_default_border_width")]
+    pub inner_border_width: f32,
+    /// Hex background color for the full wheel disc; empty = use theme.
+    #[serde(default)]
+    pub bg_color: String,
+    /// Opacity of the wheel background disc (0.0 – 1.0).
+    #[serde(default = "_full_opacity")]
+    pub bg_opacity: f32,
+    /// Hex background color for the hub (inner circle); empty = use theme.
+    #[serde(default)]
+    pub hub_color: String,
+    /// Opacity of the hub (inner circle) background (0.0 – 1.0).
+    #[serde(default = "_full_opacity")]
+    pub hub_opacity: f32,
 }
 impl Default for WheelData {
     fn default() -> Self {
@@ -1796,6 +1999,12 @@ impl Default for WheelData {
             opacity: 1.0,
             inner_border: String::new(),
             outer_border: String::new(),
+            outer_border_width: 2.0,
+            inner_border_width: 2.0,
+            bg_color: String::new(),
+            bg_opacity: 1.0,
+            hub_color: String::new(),
+            hub_opacity: 1.0,
         }
     }
 }
@@ -1860,6 +2069,24 @@ pub struct ActionSet {
     #[serde(default)]
     pub input_override: bool,
     pub entries: Vec<SetEntry>,
+    #[serde(default)]
+    pub bg_image: String,
+    #[serde(default = "_full_opacity")]
+    pub bg_image_opacity: f32,
+    #[serde(default)]
+    pub next_wheel_key: String,
+    #[serde(default)]
+    pub prev_wheel_key: String,
+    #[serde(default)]
+    pub cycle_wheels: bool,
+}
+
+/// Returns the number of `Wheel` and `WheelSet` entries in a set.
+pub fn count_wheel_entries(set: &ActionSet) -> usize {
+    set.entries
+        .iter()
+        .filter(|e| matches!(e, SetEntry::Wheel(_) | SetEntry::WheelSet(_)))
+        .count()
 }
 
 /// Whether the HUD overlay opens while a button is held (released = close)
@@ -1961,6 +2188,11 @@ impl Default for QuickActionConfig {
                             ..default()
                         }),
                     ],
+                    bg_image: String::new(),
+                    bg_image_opacity: 1.0,
+                    next_wheel_key: String::new(),
+                    prev_wheel_key: String::new(),
+                    cycle_wheels: false,
                 },
                 ActionSet {
                     name: "Stealth".into(),
@@ -1983,6 +2215,11 @@ impl Default for QuickActionConfig {
                             ..default()
                         }),
                     ],
+                    bg_image: String::new(),
+                    bg_image_opacity: 1.0,
+                    next_wheel_key: String::new(),
+                    prev_wheel_key: String::new(),
+                    cycle_wheels: false,
                 },
             ],
         }
@@ -2014,6 +2251,8 @@ pub struct WheelHudState {
     pub editor_open: bool,
     /// Highlighted segment: (set, entry, wheel, slot).
     pub highlighted: Option<(usize, usize, Option<usize>, usize)>,
+    /// Which wheel entry within the active set is currently active.
+    pub active_wheel_entry: usize,
 }
 impl Default for WheelHudState {
     fn default() -> Self {
@@ -2023,6 +2262,7 @@ impl Default for WheelHudState {
             active_set: 0,
             editor_open: false,
             highlighted: None,
+            active_wheel_entry: 0,
         }
     }
 }
@@ -2146,6 +2386,8 @@ pub fn build_hud_canvas(
     _win_h: f32,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<ColorMaterial>,
+    asset_server: &AssetServer,
+    icon_set: GamepadIconSet,
 ) {
     let root = commands
         .spawn_scene(hud_canvas_root())
@@ -2182,13 +2424,30 @@ pub fn build_hud_canvas(
             WheelHudAction::ToggleEditor,
             HUD_PANEL_CARD,
         );
+        // Show the assigned edit shortcut icon (if it's a gamepad button).
+        if let Some(lbl) = cfg.edit_shortcut.strip_prefix("GP:") {
+            if let Some(path) = icon_set.icon_path(lbl) {
+                let handle = asset_server.load::<Image>(path);
+                let icon_e = commands
+                    .spawn((
+                        Node {
+                            width: Val::Px(16.0),
+                            height: Val::Px(16.0),
+                            ..default()
+                        },
+                        ImageNode::new(handle),
+                    ))
+                    .id();
+                commands.entity(btn).add_child(icon_e);
+            }
+        }
         hud_child(commands, btn, hud_text("⚙", 12., HUD_DIM));
         hud_child(commands, btn, hud_text("Edit", 10., HUD_DIM));
     }
 
     // Set tabs at the top centre (only when enabled in config).
     if cfg.show_set_bar {
-        build_hud_set_tabs(commands, root, cfg, hud);
+        build_hud_set_tabs(commands, root, cfg, hud, asset_server, icon_set);
     }
 
     if cfg.sets.is_empty() {
@@ -2207,8 +2466,49 @@ pub fn build_hud_canvas(
     let wheel_cy = 0.0_f32;
 
     if let Some(set) = cfg.sets.get(hud.active_set) {
+        // Background image for this set, if configured.
+        if !set.bg_image.is_empty() {
+            let handle = asset_server.load::<Image>(set.bg_image.clone());
+            let bg_e = commands
+                .spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Px(0.),
+                        top: Val::Px(0.),
+                        right: Val::Px(0.),
+                        bottom: Val::Px(0.),
+                        ..default()
+                    },
+                    ImageNode {
+                        image: handle,
+                        color: Color::WHITE.with_alpha(set.bg_image_opacity),
+                        ..default()
+                    },
+                ))
+                .id();
+            commands.entity(root).add_child(bg_e);
+        }
+
+        // Clamp active_wheel_entry to a valid range.
+        let n_wheels = count_wheel_entries(set);
+        let target = if n_wheels == 0 {
+            0
+        } else {
+            hud.active_wheel_entry.min(n_wheels - 1)
+        };
+
+        // Find the target-th Wheel / WheelSet entry.
         let mut rendered = false;
+        let mut wcount = 0usize;
         for (ei, entry) in set.entries.iter().enumerate() {
+            let is_wheel = matches!(entry, SetEntry::Wheel(_) | SetEntry::WheelSet(_));
+            if !is_wheel {
+                continue;
+            }
+            if wcount != target {
+                wcount += 1;
+                continue;
+            }
             match entry {
                 SetEntry::Wheel(w) => {
                     build_centered_wheel_hud(
@@ -2225,7 +2525,6 @@ pub fn build_hud_canvas(
                         materials,
                     );
                     rendered = true;
-                    break;
                 }
                 SetEntry::WheelSet(ws) => {
                     if let Some(w) = ws.wheels.first() {
@@ -2244,10 +2543,10 @@ pub fn build_hud_canvas(
                         );
                         rendered = true;
                     }
-                    break;
                 }
                 _ => {}
             }
+            break;
         }
         if !rendered {
             hud_child(
@@ -2256,7 +2555,7 @@ pub fn build_hud_canvas(
                 hud_text("No wheels in this set.", 11., HUD_DIMMER),
             );
         }
-        build_hud_action_buttons(commands, root, set);
+        build_hud_action_buttons(commands, root, set, asset_server, icon_set);
     }
 }
 
@@ -2280,9 +2579,28 @@ pub fn build_centered_wheel_hud(
 
     let is_pie = wheel.segment_shape == SegmentShape::Pie;
     if !is_pie {
-        hud_child(commands, hub, wheel_bg_disc(menu.radius));
+        let bg_col = if wheel.bg_color.is_empty() {
+            Color::srgba(0.096, 0.118, 0.157, wheel.bg_opacity)
+        } else {
+            parse_hex_color(&wheel.bg_color, wheel.bg_opacity)
+        };
+        hud_child(commands, hub, wheel_bg_disc(menu.radius, bg_col));
     }
-    hud_child(commands, hub, wheel_outer_ring(menu.radius));
+    let outer_col = if wheel.outer_border.is_empty() {
+        Color::srgba(0.75, 0.58, 0.15, 0.40)
+    } else {
+        parse_hex_color(&wheel.outer_border, 1.0)
+    };
+    let outer_bw = if wheel.outer_border.is_empty() {
+        1.5_f32
+    } else {
+        wheel.outer_border_width.max(0.0)
+    };
+    hud_child(
+        commands,
+        hub,
+        wheel_outer_ring(menu.radius, outer_col, outer_bw),
+    );
 
     let slice_angle = std::f32::consts::TAU / menu.slices.max(1) as f32;
     let base_pw = (2.0 * menu.radius * (slice_angle / 2.0).sin() * 0.72).max(48.0);
@@ -2407,28 +2725,71 @@ pub fn build_centered_wheel_hud(
 
     // Centre hub ring.
     let disc_r = (menu.inner_radius - 4.0).max(8.0);
-    let ring_col = Color::srgb(0.82, 0.64, 0.16);
-    let hub_bg = Color::srgb(0.08, 0.10, 0.14);
+    let ring_col = if wheel.inner_border.is_empty() {
+        Color::srgb(0.82, 0.64, 0.16)
+    } else {
+        parse_hex_color(&wheel.inner_border, 1.0)
+    };
+    let hub_bg = if wheel.hub_color.is_empty() {
+        Color::srgba(0.08, 0.10, 0.14, wheel.hub_opacity)
+    } else {
+        parse_hex_color(&wheel.hub_color, wheel.hub_opacity)
+    };
+    let inner_bw = if wheel.inner_border.is_empty() {
+        3.0_f32
+    } else {
+        wheel.inner_border_width.max(0.0)
+    };
     let center = hud_child(
         commands,
         hub,
-        wheel_center_ring(disc_r, hub_bg, ring_col, 3.0),
+        wheel_center_ring(disc_r, hub_bg, ring_col, inner_bw),
     );
-    let hub_label = wheel
-        .name
-        .chars()
-        .next()
-        .map(|c| c.to_string())
-        .unwrap_or_default();
-    hud_child(
-        commands,
-        center,
-        wheel_slice_label(hub_label, (disc_r * 0.60).max(9.0), ring_col),
-    );
+
+    // Show highlighted slot info; show nothing by default.
+    let hub_slot = highlighted.and_then(|(hs, he, hw, si)| {
+        if hs == set && he == entry && hw == w_idx {
+            wheel.slots.get(si)
+        } else {
+            None
+        }
+    });
+    if let Some(slot) = hub_slot {
+        let info_col = hud_child(
+            commands,
+            center,
+            bsn! {
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    row_gap: {Val::Px(2.)},
+                }
+            },
+        );
+        let icon_sz = (disc_r * 0.55).clamp(10.0, 22.0);
+        let name_sz = (disc_r * 0.22).clamp(7.0, 10.0);
+        if !slot.icon.is_empty() {
+            hud_child(commands, info_col, hud_text(&slot.icon, icon_sz, HUD_TEXT));
+        }
+        if !slot.name.is_empty() {
+            hud_child(
+                commands,
+                info_col,
+                hud_text(&slot.name.to_uppercase(), name_sz, HUD_DIM),
+            );
+        }
+    }
 }
 
 /// Floating quick-action buttons in the bottom-right corner.
-fn build_hud_action_buttons(commands: &mut Commands, parent: Entity, set: &ActionSet) {
+fn build_hud_action_buttons(
+    commands: &mut Commands,
+    parent: Entity,
+    set: &ActionSet,
+    asset_server: &AssetServer,
+    icon_set: GamepadIconSet,
+) {
     let btns: Vec<&QuickAction> = set
         .entries
         .iter()
@@ -2478,21 +2839,45 @@ fn build_hud_action_buttons(commands: &mut Commands, parent: Entity, set: &Actio
             },
         );
         if !qa.key.is_empty() {
-            let kb = hud_child(
-                commands,
-                row,
-                bsn! {
-                    Node {
-                        width: {Val::Px(16.)}, height: {Val::Px(14.)},
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        border: {UiRect::all(Val::Px(1.))},
-                        border_radius: {BorderRadius::all(Val::Px(2.))},
-                    }
-                    BorderColor::all(HUD_BADGE_BORDER)
-                },
-            );
-            hud_child(commands, kb, hud_text(&qa.key, 7., HUD_DIM));
+            // GP: key → show the controller button icon; keyboard key → text badge.
+            let mut showed_icon = false;
+            if let Some(btn_label) = qa.key.strip_prefix("GP:") {
+                if let Some(path) = icon_set.icon_path(btn_label) {
+                    let handle = asset_server.load::<Image>(path);
+                    let icon_e = commands
+                        .spawn((
+                            Node {
+                                width: Val::Px(22.0),
+                                height: Val::Px(22.0),
+                                ..default()
+                            },
+                            ImageNode::new(handle),
+                        ))
+                        .id();
+                    commands.entity(row).add_child(icon_e);
+                    showed_icon = true;
+                }
+            }
+            if !showed_icon {
+                // Keyboard fallback — bordered text badge.
+                let key_disp = qa.key.strip_prefix("GP:").unwrap_or(&qa.key);
+                let kb = hud_child(
+                    commands,
+                    row,
+                    bsn! {
+                        Node {
+                            min_width: {Val::Px(16.)}, height: {Val::Px(16.)},
+                            padding: {UiRect::horizontal(Val::Px(3.))},
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            border: {UiRect::all(Val::Px(1.))},
+                            border_radius: {BorderRadius::all(Val::Px(2.))},
+                        }
+                        BorderColor::all(HUD_BADGE_BORDER)
+                    },
+                );
+                hud_child(commands, kb, hud_text(key_disp, 8., HUD_DIM));
+            }
         }
         let btn_node = commands
             .spawn_scene(bsn! {
@@ -2518,6 +2903,8 @@ fn build_hud_set_tabs(
     parent: Entity,
     cfg: &QuickActionConfig,
     hud: &WheelHudState,
+    asset_server: &AssetServer,
+    icon_set: GamepadIconSet,
 ) {
     let bar = commands
         .spawn_scene(bsn! {
@@ -2552,6 +2939,23 @@ fn build_hud_set_tabs(
         HUD_PANEL_CARD,
     );
     hud_child(commands, larrow, hud_text("‹", 14., HUD_DIM));
+    // Overlay the assigned prev-set icon if it's a gamepad button.
+    if let Some(lbl) = cfg.prev_set_key.strip_prefix("GP:") {
+        if let Some(path) = icon_set.icon_path(lbl) {
+            let handle = asset_server.load::<Image>(path);
+            let e = commands
+                .spawn((
+                    Node {
+                        width: Val::Px(18.0),
+                        height: Val::Px(18.0),
+                        ..default()
+                    },
+                    ImageNode::new(handle),
+                ))
+                .id();
+            commands.entity(larrow).add_child(e);
+        }
+    }
 
     for (i, set) in cfg.sets.iter().enumerate() {
         let active = i == hud.active_set;
@@ -2600,6 +3004,23 @@ fn build_hud_set_tabs(
         HUD_PANEL_CARD,
     );
     hud_child(commands, rarrow, hud_text("›", 14., HUD_DIM));
+    // Overlay the assigned next-set icon if it's a gamepad button.
+    if let Some(lbl) = cfg.next_set_key.strip_prefix("GP:") {
+        if let Some(path) = icon_set.icon_path(lbl) {
+            let handle = asset_server.load::<Image>(path);
+            let e = commands
+                .spawn((
+                    Node {
+                        width: Val::Px(18.0),
+                        height: Val::Px(18.0),
+                        ..default()
+                    },
+                    ImageNode::new(handle),
+                ))
+                .id();
+            commands.entity(rarrow).add_child(e);
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────
@@ -2654,25 +3075,34 @@ fn hud_stick_nav(
     };
     let stick = action.axis_pair(&WheelNavAction::Navigate);
 
-    // Locate the first Wheel / WheelSet entry in the active set.
+    // Locate the active wheel entry (honoring active_wheel_entry).
     let Some(set) = cfg.sets.get(hud.active_set) else {
         return;
     };
     let mut found: Option<(usize, Option<usize>, usize)> = None;
+    let target = hud.active_wheel_entry;
+    let mut wcount = 0usize;
     for (ei, entry) in set.entries.iter().enumerate() {
+        let is_wheel = matches!(entry, SetEntry::Wheel(_) | SetEntry::WheelSet(_));
+        if !is_wheel {
+            continue;
+        }
+        if wcount != target {
+            wcount += 1;
+            continue;
+        }
         match entry {
             SetEntry::Wheel(w) => {
                 found = Some((ei, None, w.slots.len()));
-                break;
             }
             SetEntry::WheelSet(ws) => {
                 if let Some(w) = ws.wheels.first() {
                     found = Some((ei, Some(0), w.slots.len()));
                 }
-                break;
             }
             _ => {}
         }
+        break;
     }
     let Some((entry_idx, wheel_idx, n_slots)) = found else {
         return;
@@ -2713,6 +3143,8 @@ fn rebuild_hud(
     mut commands: Commands,
     mut hud: ResMut<WheelHudState>,
     cfg: Res<QuickActionConfig>,
+    asset_server: Res<AssetServer>,
+    icon_set: Res<GamepadIconSet>,
     windows: Query<&Window>,
     old_hud: Query<Entity, With<WheelHudRoot>>,
     old_meshes: Query<Entity, With<WheelMeshPreview>>,
@@ -2746,6 +3178,8 @@ fn rebuild_hud(
         win_h,
         &mut meshes,
         &mut materials,
+        &*asset_server,
+        *icon_set,
     );
 }
 

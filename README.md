@@ -217,3 +217,11 @@ cargo run --example fps
 ## License
 
 Licensed under either of [Apache 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at your option.
+
+---
+
+## Credits
+
+| Asset | Author | License |
+|---|---|---|
+| Controller button icons (`assets/icons/`) | [Julio Cácko](https://juliocacko.itch.io/free-input-prompts) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
