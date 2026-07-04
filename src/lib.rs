@@ -951,8 +951,15 @@ impl Plugin for QuickActionHudPlugin {
                 );
         }
 
-        // ── editor sidebar ────────────────────────────────────────────────────
+        // ── editor sidebar ───────────────────────────────────────────────────────────────────────────
         if self.editor {
+            app.add_plugins(bevy::feathers::FeathersPlugins);
+            // Always insert the dark theme so feathers widgets are styled.
+            // Users who need a custom theme should insert their own UiTheme
+            // *after* adding this plugin.
+            app.insert_resource(bevy::feathers::theme::UiTheme(
+                bevy::feathers::dark_theme::create_dark_theme(),
+            ));
             editor::register_editor_systems(app);
         }
     }

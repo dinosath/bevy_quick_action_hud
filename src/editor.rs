@@ -15,10 +15,15 @@
 use crate::*;
 
 use bevy::ecs::message::MessageReader;
+use bevy::feathers::controls::{
+    ButtonVariant, FeathersButton, FeathersCheckbox, FeathersToolButton,
+};
+use bevy::feathers::theme::ThemedText;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::ButtonState;
 use bevy::prelude::*;
-use bevy::ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb};
+use bevy::ui::Checked;
+use bevy::ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb, ValueChange};
 
 // ─── selection & edit-focus ──────────────────────────────────────────────────────
 
@@ -125,6 +130,13 @@ pub struct SegmentHoverColor(pub Color);
 pub struct EditorButton {
     pub action: EditorAction,
     pub base: Color,
+}
+
+/// Placed on [`FeathersCheckbox`] entities in toggle fields.
+/// Dispatched via the global [`ValueChange<bool>`] observer, not `Interaction::Pressed`.
+#[derive(Component, Clone)]
+pub struct EditorToggle {
+    pub action: EditorAction,
 }
 
 // ─── editor actions ───────────────────────────────────────────────────────────────
@@ -385,25 +397,40 @@ pub enum EditorAction {
 
 // ─── plugin ──────────────────────────────────────────────────────────────────────
 
+fn on_editor_value_change_bool(
+    trigger: On<ValueChange<bool>>,
+    toggles: Query<&EditorToggle>,
+    mut cfg: ResMut<QuickActionConfig>,
+    mut ui: ResMut<EditorUiState>,
+    mut hud: ResMut<WheelHudState>,
+) {
+    if let Ok(t) = toggles.get(trigger.event_target()) {
+        apply_action(&t.action.clone(), &mut cfg, &mut ui, &mut hud);
+        ui.dirty = true;
+        hud.dirty = true;
+    }
+}
+
 /// Registers all editor UI resources and systems into `app`.
 /// Called by [`QuickActionHudPlugin`] when `editor: true`.
 pub(crate) fn register_editor_systems(app: &mut App) {
-    app.init_resource::<EditorUiState>().add_systems(
-        Update,
-        (
-            process_hud_buttons,
-            handle_editor_buttons,
-            editor_capture_key,
-            editor_capture_gamepad,
-            editor_text_input,
-            editor_button_feedback,
-            apply_set_shortcuts,
-            hud_wheel_nav,
-            check_edit_shortcut,
-            rebuild_editor,
-        )
-            .chain(),
-    );
+    app.init_resource::<EditorUiState>()
+        .add_observer(on_editor_value_change_bool)
+        .add_systems(
+            Update,
+            (
+                process_hud_buttons,
+                handle_editor_buttons,
+                editor_capture_key,
+                editor_capture_gamepad,
+                editor_text_input,
+                apply_set_shortcuts,
+                hud_wheel_nav,
+                check_edit_shortcut,
+                rebuild_editor,
+            )
+                .chain(),
+        );
 }
 
 /// Convenience plugin — equivalent to `QuickActionHudPlugin::with_editor()`.
@@ -433,6 +460,7 @@ const BLUE: Color = Color::srgb(0.38, 0.62, 0.95);
 const TEAL: Color = Color::srgb(0.52, 0.69, 0.75);
 const BADGE_BORDER: Color = Color::srgb(0.26, 0.30, 0.36);
 const ROW_SEL: Color = Color::srgba(0.38, 0.62, 0.95, 0.16);
+#[allow(dead_code)]
 const ROW_HOVER: Color = Color::srgba(1.0, 1.0, 1.0, 0.05);
 const PANEL_CARD: Color = Color::srgb(0.08, 0.10, 0.15);
 const CTRL_BG: Color = Color::srgb(0.11, 0.14, 0.19);
@@ -459,6 +487,7 @@ fn hcluster() -> impl Scene {
 
 fn row_button(bg: Color) -> impl Scene {
     bsn! {
+        @FeathersButton { @variant: ButtonVariant::Plain }
         Node {
             width: {percent(100.)}, height: {px(24.)},
             flex_direction: FlexDirection::Row,
@@ -468,7 +497,6 @@ fn row_button(bg: Color) -> impl Scene {
             border_radius: {BorderRadius::all(px(4.))},
         }
         BackgroundColor({bg})
-        Button
     }
 }
 
@@ -487,6 +515,7 @@ fn key_badge_box() -> impl Scene {
 
 fn set_header_row(bg: Color) -> impl Scene {
     bsn! {
+        @FeathersButton { @variant: ButtonVariant::Plain }
         Node {
             width: {percent(100.)}, height: {px(26.)},
             margin: {UiRect::top(px(4.))},
@@ -497,7 +526,6 @@ fn set_header_row(bg: Color) -> impl Scene {
             border_radius: {BorderRadius::all(px(4.))},
         }
         BackgroundColor({bg})
-        Button
     }
 }
 
@@ -607,33 +635,32 @@ fn scrolled_tree(commands: &mut Commands, parent: Entity) -> Entity {
 
 fn del_btn() -> impl Scene {
     bsn! {
+        @FeathersToolButton { @variant: ButtonVariant::Plain }
         Node {
             width: {px(16.)}, height: {px(16.)},
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
         }
-        Button
     }
 }
 
-fn footer_button(label: &str, accent: Color, filled: bool) -> impl Scene {
-    let (bg, border) = if filled {
-        (GREEN_BG, Color::NONE)
+fn footer_button(label: &str, _accent: Color, filled: bool) -> impl Scene {
+    let label = label.to_string();
+    let variant = if filled {
+        ButtonVariant::Primary
     } else {
-        (Color::NONE, BADGE_BORDER)
+        ButtonVariant::Plain
     };
     bsn! {
+        @FeathersButton {
+            @variant: {variant},
+            @caption: bsn! { Text({label}) ThemedText },
+        }
         Node {
             padding: {UiRect::axes(px(16.), px(6.))},
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
-            border: {UiRect::all(px(1.))},
-            border_radius: {BorderRadius::all(px(5.))},
         }
-        BorderColor::all(border)
-        BackgroundColor({bg})
-        Button
-        Children [ text(label, 11., accent) ]
     }
 }
 
@@ -1773,24 +1800,7 @@ fn build_footer(commands: &mut Commands, parent: Entity, path: &str) {
     child(commands, cap, text(path, 9., DIMMER));
 }
 
-// ─── interaction ─────────────────────────────────────────────────────────────────
-
-fn editor_button_feedback(
-    mut buttons: Query<(
-        &EditorButton,
-        &Interaction,
-        &mut BackgroundColor,
-        Option<&SegmentHoverColor>,
-    )>,
-) {
-    for (btn, interaction, mut bg, hover_col) in &mut buttons {
-        *bg = match interaction {
-            Interaction::Hovered => BackgroundColor(hover_col.map(|h| h.0).unwrap_or(ROW_HOVER)),
-            Interaction::Pressed => BackgroundColor(ROW_SEL),
-            Interaction::None => BackgroundColor(btn.base),
-        };
-    }
-}
+// ─── interaction ───────────────────────────────────────────────────────────────
 
 fn handle_editor_buttons(
     buttons: Query<(&EditorButton, &Interaction), Changed<Interaction>>,
@@ -2425,9 +2435,11 @@ fn editor_card() -> impl Scene {
             row_gap: {px(4.)},
             padding: {UiRect::all(px(8.))},
             margin: {UiRect::new(px(0.), px(0.), px(2.), px(4.))},
+            border: {UiRect::all(px(1.))},
             border_radius: {BorderRadius::all(px(6.))},
         }
         BackgroundColor({PANEL_CARD})
+        BorderColor::all(SIDEBAR_BORDER)
     }
 }
 
@@ -2436,10 +2448,15 @@ fn section_label(commands: &mut Commands, parent: Entity, label: &str) {
         commands,
         parent,
         bsn! {
-            Node { padding: {UiRect::new(px(0.), px(0.), px(6.), px(2.))} }
+            Node {
+                padding: {UiRect::new(px(0.), px(0.), px(6.), px(2.))},
+                border: {UiRect::bottom(px(1.))},
+                margin: {UiRect::bottom(px(2.))},
+            }
+            BorderColor::all(SIDEBAR_BORDER)
         },
     );
-    child(commands, row, text(label, 10., DIM));
+    child(commands, row, text(label, 10., AMBER));
 }
 
 fn field_row() -> impl Scene {
@@ -2460,8 +2477,9 @@ fn label_cell(s: &str) -> impl Scene {
     }
 }
 
-fn ctrl_box(accent: Color) -> impl Scene {
+fn ctrl_box(_accent: Color) -> impl Scene {
     bsn! {
+        @FeathersButton { @variant: ButtonVariant::Plain }
         Node {
             flex_grow: 1., height: {px(20.)},
             padding: {UiRect::horizontal(px(6.))},
@@ -2470,21 +2488,19 @@ fn ctrl_box(accent: Color) -> impl Scene {
             border: {UiRect::all(px(1.))},
             border_radius: {BorderRadius::all(px(4.))},
         }
-        BorderColor::all(accent)
-        Button
+        BorderColor::all(BADGE_BORDER)
     }
 }
 
 fn mini_box() -> impl Scene {
     bsn! {
+        @FeathersToolButton { @variant: ButtonVariant::Plain }
         Node {
             width: {px(22.)}, height: {px(20.)},
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             border_radius: {BorderRadius::all(px(4.))},
         }
-        BackgroundColor({CTRL_BG})
-        Button
     }
 }
 
@@ -2495,21 +2511,6 @@ fn val_cell() -> impl Scene {
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
         }
-    }
-}
-
-fn pill_box(bg: Color, accent: Color) -> impl Scene {
-    bsn! {
-        Node {
-            padding: {UiRect::axes(px(10.), px(3.))},
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            border: {UiRect::all(px(1.))},
-            border_radius: {BorderRadius::all(px(4.))},
-        }
-        BorderColor::all(accent)
-        BackgroundColor({bg})
-        Button
     }
 }
 
@@ -2541,13 +2542,14 @@ fn spawn_toggle_field(
     action: EditorAction,
 ) {
     let row = spawn_field(commands, parent, label);
-    let (bg, accent, txt, col) = if on {
-        (GREEN_BG, GREEN, "ON", GREEN)
-    } else {
-        (Color::NONE, BADGE_BORDER, "OFF", DIM)
-    };
-    let p = clickable(commands, row, pill_box(bg, accent), action, bg);
-    child(commands, p, text(txt, 10., col));
+    // Spawn the FeathersCheckbox scene, then insert EditorToggle separately
+    // (avoids the FromTemplate/Default requirement for EditorAction).
+    let e = commands.spawn_scene(bsn! { @FeathersCheckbox }).id();
+    commands.entity(e).insert(EditorToggle { action });
+    if on {
+        commands.entity(e).insert(Checked);
+    }
+    commands.entity(row).add_child(e);
 }
 
 fn spawn_stepper_field(
