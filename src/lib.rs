@@ -1850,7 +1850,7 @@ pub struct SlotItem {
 }
 
 /// Per-segment data for the editor config.
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct WheelSlotData {
     pub name: String,
@@ -1858,6 +1858,20 @@ pub struct WheelSlotData {
     /// Captured input label: keyboard key or "GP:…" gamepad.
     pub input: String,
     pub items: Vec<SlotItem>,
+    /// Close the HUD overlay when this slot is selected.
+    #[serde(default = "_default_true")]
+    pub close_on_select: bool,
+}
+impl Default for WheelSlotData {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            icon: String::new(),
+            input: String::new(),
+            items: Vec::new(),
+            close_on_select: true,
+        }
+    }
 }
 impl WheelSlotData {
     pub fn named(name: impl Into<String>) -> Self {
@@ -1893,6 +1907,9 @@ pub struct QuickAction {
     pub height: f32,
     #[serde(default = "_default_true")]
     pub enabled: bool,
+    /// Close the HUD overlay when this action's shortcut is pressed.
+    #[serde(default = "_default_true")]
+    pub close_on_select: bool,
 }
 impl Default for QuickAction {
     fn default() -> Self {
@@ -1911,6 +1928,7 @@ impl Default for QuickAction {
             width: _default_action_width(),
             height: _default_action_height(),
             enabled: true,
+            close_on_select: true,
         }
     }
 }
@@ -1982,6 +2000,9 @@ pub struct WheelData {
     /// When true, segments touch with no gap.
     #[serde(default)]
     pub overlap: bool,
+    /// Which analogue stick navigates this wheel in the HUD.
+    #[serde(default)]
+    pub stick: StickSide,
 }
 impl Default for WheelData {
     fn default() -> Self {
@@ -2011,6 +2032,7 @@ impl Default for WheelData {
             arc_span: _default_arc_span(),
             arc_offset: _default_arc_offset(),
             overlap: false,
+            stick: StickSide::Right,
         }
     }
 }
@@ -2035,6 +2057,9 @@ pub struct WheelSetData {
     pub wheels: Vec<WheelData>,
     #[serde(default)]
     pub switch_key: String,
+    /// Which analogue stick navigates wheels in this set.
+    #[serde(default)]
+    pub stick: StickSide,
 }
 impl Default for WheelSetData {
     fn default() -> Self {
@@ -2042,6 +2067,7 @@ impl Default for WheelSetData {
             name: "Wheel Set".into(),
             wheels: Vec::new(),
             switch_key: String::new(),
+            stick: StickSide::Right,
         }
     }
 }
@@ -2074,6 +2100,21 @@ pub struct ActionSet {
     #[serde(default)]
     pub cycle_wheels: bool,
 }
+impl Default for ActionSet {
+    fn default() -> Self {
+        Self {
+            name: "Set".into(),
+            opacity: 1.0,
+            input_override: false,
+            entries: Vec::new(),
+            bg_image: String::new(),
+            bg_image_opacity: 1.0,
+            next_wheel_key: String::new(),
+            prev_wheel_key: String::new(),
+            cycle_wheels: false,
+        }
+    }
+}
 
 /// Returns the number of `Wheel` and `WheelSet` entries in a set.
 pub fn count_wheel_entries(set: &ActionSet) -> usize {
@@ -2092,6 +2133,30 @@ pub enum HudOpenMode {
     Hold,
     /// First press opens the HUD; second press closes it.
     Toggle,
+}
+
+/// Which analogue stick navigates the HUD wheel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum StickSide {
+    /// Use the right analogue stick (default).
+    #[default]
+    Right,
+    /// Use the left analogue stick.
+    Left,
+}
+impl StickSide {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Right => "R Stick",
+            Self::Left => "L Stick",
+        }
+    }
+    pub fn next(self) -> Self {
+        match self {
+            Self::Right => Self::Left,
+            Self::Left => Self::Right,
+        }
+    }
 }
 
 impl HudOpenMode {
@@ -2168,6 +2233,7 @@ impl Default for QuickActionConfig {
                             name: "Wheel Set".into(),
                             switch_key: String::new(),
                             wheels: vec![combat_wheel, WheelData::new("Wheel 2", 6)],
+                            stick: StickSide::Right,
                         }),
                         SetEntry::Action(QuickAction {
                             name: "Interact".into(),
@@ -2205,6 +2271,7 @@ impl Default for QuickActionConfig {
                             name: "Stealth Wheels".into(),
                             switch_key: String::new(),
                             wheels: vec![WheelData::new("Stealth Wheel", 4)],
+                            stick: StickSide::Right,
                         }),
                         SetEntry::Action(QuickAction {
                             name: "Hide".into(),
@@ -3135,13 +3202,13 @@ fn hud_button_feedback(mut buttons: Query<(&WheelHudButton, &Interaction, &mut B
     }
 }
 
-/// Reads the right-stick axis ([`WheelNavAction::Navigate`]) and updates
-/// [`WheelHudState::highlighted`] while the HUD wheel is open.
+/// Updates [`WheelHudState::highlighted`] while the HUD wheel is open.
 ///
 /// Uses **release-to-use**: the slot that was highlighted when the stick
 /// returns to the dead-zone is emitted as a [`HudSegmentSelected`] event.
+/// The stick side (L/R) is read from the active wheel entry's `stick` field.
 fn hud_stick_nav(
-    nav_q: Query<&ActionState<WheelNavAction>>,
+    gamepads: Query<&Gamepad>,
     mut hud: ResMut<WheelHudState>,
     cfg: Res<QuickActionConfig>,
     mut select_ev: MessageWriter<HudSegmentSelected>,
@@ -3149,16 +3216,12 @@ fn hud_stick_nav(
     if !hud.open {
         return;
     }
-    let Ok(action) = nav_q.single() else {
-        return;
-    };
-    let stick = action.axis_pair(&WheelNavAction::Navigate);
 
     // Locate the active wheel entry (honoring active_wheel_entry).
     let Some(set) = cfg.sets.get(hud.active_set) else {
         return;
     };
-    let mut found: Option<(usize, Option<usize>, usize)> = None;
+    let mut found: Option<(usize, Option<usize>, usize, StickSide)> = None;
     let target = hud.active_wheel_entry;
     let mut wcount = 0usize;
     for (ei, entry) in set.entries.iter().enumerate() {
@@ -3172,22 +3235,36 @@ fn hud_stick_nav(
         }
         match entry {
             SetEntry::Wheel(w) => {
-                found = Some((ei, None, w.slots.len()));
+                found = Some((ei, None, w.slots.len(), w.stick));
             }
             SetEntry::WheelSet(ws) => {
                 if let Some(w) = ws.wheels.first() {
-                    found = Some((ei, Some(0), w.slots.len()));
+                    found = Some((ei, Some(0), w.slots.len(), ws.stick));
                 }
             }
             _ => {}
         }
         break;
     }
-    let Some((entry_idx, wheel_idx, n_slots)) = found else {
+    let Some((entry_idx, wheel_idx, n_slots, stick_side)) = found else {
         return;
     };
     if n_slots == 0 {
         return;
+    }
+
+    // Read raw gamepad axes for the configured stick.
+    let mut stick = Vec2::ZERO;
+    for gamepad in &gamepads {
+        let (xa, ya) = match stick_side {
+            StickSide::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
+            StickSide::Left => (GamepadAxis::LeftStickX, GamepadAxis::LeftStickY),
+        };
+        stick = Vec2::new(
+            gamepad.get(xa).unwrap_or(0.0),
+            gamepad.get(ya).unwrap_or(0.0),
+        );
+        break;
     }
 
     const DEADZONE: f32 = 0.2;
@@ -3206,12 +3283,31 @@ fn hud_stick_nav(
     if prev != new_highlight {
         // Release-to-use: emit selection when stick returns to dead-zone.
         if let (Some((s, e, w, slot)), None) = (prev, new_highlight) {
+            // Check close_on_select for this slot.
+            let slot_close = cfg
+                .sets
+                .get(s)
+                .and_then(|set| set.entries.get(e))
+                .and_then(|entry| match (entry, w) {
+                    (SetEntry::Wheel(wd), None) => wd.slots.get(slot),
+                    (SetEntry::WheelSet(ws), Some(wi)) => {
+                        ws.wheels.get(wi).and_then(|wd| wd.slots.get(slot))
+                    }
+                    _ => None,
+                })
+                .map(|s| s.close_on_select)
+                .unwrap_or(false);
+
             select_ev.write(HudSegmentSelected {
                 set: s,
                 entry: e,
                 wheel: w,
                 slot,
             });
+
+            if slot_close {
+                hud.open = false;
+            }
         }
         hud.highlighted = new_highlight;
         hud.dirty = true;

@@ -379,6 +379,29 @@ pub enum EditorAction {
     CaptureSlotInput {
         slot: usize,
     },
+    /// Clear the input binding for segment `slot`.
+    ClearSlotInput {
+        slot: usize,
+    },
+    // ── clear shortcuts ──────────────────────────────────────────────────────────
+    ClearNextSetKey,
+    ClearPrevSetKey,
+    ClearEditShortcut,
+    ClearNextWheelKey {
+        set: usize,
+    },
+    ClearPrevWheelKey {
+        set: usize,
+    },
+    ClearWheelSetSwitchKey {
+        set: usize,
+        entry: usize,
+    },
+    /// Clear the key binding for action entry `entry` in set `set`.
+    ClearActionKey {
+        set: usize,
+        entry: usize,
+    },
     // ── per-slot items ───────────────────────────────────────────────────────────
     AddSlotItem {
         slot: usize,
@@ -394,6 +417,19 @@ pub enum EditorAction {
     EditSlotItemIcon {
         slot: usize,
         item: usize,
+    },
+    /// Toggle stick side for the active standalone wheel.
+    CycleWheelStick,
+    /// Toggle stick side for the selected WheelSet entry.
+    CycleWheelSetStick,
+    /// Toggle close-on-select for slot `slot` of the active wheel.
+    ToggleSlotCloseOnSelect {
+        slot: usize,
+    },
+    /// Toggle close-on-select for action entry `entry` in set `set`.
+    ToggleActionCloseOnSelect {
+        set: usize,
+        entry: usize,
     },
 }
 
@@ -441,6 +477,7 @@ pub(crate) fn register_editor_systems(app: &mut App) {
                 editor_capture_gamepad,
                 editor_text_input,
                 apply_set_shortcuts,
+                hud_button_action_shortcuts,
                 hud_wheel_nav,
                 check_edit_shortcut,
                 rebuild_editor,
@@ -865,6 +902,7 @@ fn spawn_key_capture_field(
     display_color: Color,
     accent: Color,
     action: EditorAction,
+    clear_action: EditorAction,
     raw_key: &str,
     focused: bool,
     icons: &Icons<'_>,
@@ -886,11 +924,37 @@ fn spawn_key_capture_field(
                     ))
                     .id();
                 commands.entity(b).add_child(e);
-                return;
+                // Fall through to spawn clear button.
+            } else {
+                child(commands, b, text(display, 11., display_color));
             }
+        } else {
+            child(commands, b, text(display, 11., display_color));
         }
+    } else {
+        child(commands, b, text(display, 11., display_color));
     }
-    child(commands, b, text(display, 11., display_color));
+    // Clear button — only when the field has a value and we're not in capture mode.
+    if !raw_key.is_empty() && !focused {
+        let clear_btn = clickable(
+            commands,
+            row,
+            bsn! {
+                @FeathersToolButton {}
+                Node {
+                    width: {Val::Px(18.)},
+                    height: {Val::Px(18.)},
+                    margin: {UiRect::left(px(3.))},
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    flex_shrink: 0.,
+                }
+            },
+            clear_action,
+            Color::NONE,
+        );
+        cil_icon(commands, clear_btn, "cil-x", 10., HUD_DIM, icons);
+    }
 }
 
 // ─── rebuild ─────────────────────────────────────────────────────────────────────
@@ -1350,6 +1414,7 @@ fn build_nav_sidebar(
             nwc,
             if nwf { AMBER } else { BADGE_BORDER },
             EditorAction::CaptureNextWheelKey { set: si },
+            EditorAction::ClearNextWheelKey { set: si },
             &set.next_wheel_key,
             nwf,
             icons,
@@ -1366,6 +1431,7 @@ fn build_nav_sidebar(
             pwc,
             if pwf { AMBER } else { BADGE_BORDER },
             EditorAction::CapturePrevWheelKey { set: si },
+            EditorAction::ClearPrevWheelKey { set: si },
             &set.prev_wheel_key,
             pwf,
             icons,
@@ -1544,6 +1610,7 @@ fn build_root_sidebar(
         nc,
         if nf { AMBER } else { BADGE_BORDER },
         EditorAction::CaptureNextSetKey,
+        EditorAction::ClearNextSetKey,
         &cfg.next_set_key,
         nf,
         icons,
@@ -1560,6 +1627,7 @@ fn build_root_sidebar(
         pc,
         if pf { AMBER } else { BADGE_BORDER },
         EditorAction::CapturePrevSetKey,
+        EditorAction::ClearPrevSetKey,
         &cfg.prev_set_key,
         pf,
         icons,
@@ -1594,6 +1662,7 @@ fn build_root_sidebar(
         ec,
         if ef { AMBER } else { BADGE_BORDER },
         EditorAction::CaptureEditShortcut,
+        EditorAction::ClearEditShortcut,
         &cfg.edit_shortcut,
         ef,
         icons,
@@ -2072,6 +2141,7 @@ fn apply_action(
                     name: "New Wheel Set".into(),
                     wheels: vec![WheelData::new("Wheel 1", 6)],
                     switch_key: String::new(),
+                    stick: StickSide::Right,
                 }));
             }
         }
@@ -2446,6 +2516,45 @@ fn apply_action(
         EditorAction::CaptureSlotInput { slot } => {
             ui.editing = EditFocus::SlotInput(slot);
         }
+        EditorAction::ClearSlotInput { slot } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                if let Some(s) = w.slots.get_mut(slot) {
+                    s.input.clear();
+                }
+            }
+        }
+        // ── clear shortcuts ─────────────────────────────────────────────────────────
+        EditorAction::ClearNextSetKey => {
+            cfg.next_set_key.clear();
+        }
+        EditorAction::ClearPrevSetKey => {
+            cfg.prev_set_key.clear();
+        }
+        EditorAction::ClearEditShortcut => {
+            cfg.edit_shortcut.clear();
+        }
+        EditorAction::ClearNextWheelKey { set } => {
+            if let Some(s) = cfg.sets.get_mut(set) {
+                s.next_wheel_key.clear();
+            }
+        }
+        EditorAction::ClearPrevWheelKey { set } => {
+            if let Some(s) = cfg.sets.get_mut(set) {
+                s.prev_wheel_key.clear();
+            }
+        }
+        EditorAction::ClearWheelSetSwitchKey { set, entry } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                ws.switch_key.clear();
+            }
+        }
+        EditorAction::ClearActionKey { set, entry } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.key.clear();
+            }
+        }
         // ── per-slot items ─────────────────────────────────────────────────────────────────────────
         EditorAction::AddSlotItem { slot } => {
             if let Some(w) = wheel_at(cfg, ui.selection) {
@@ -2494,6 +2603,34 @@ fn apply_action(
                 "#160b0b", "#0b160b",
             ];
             cfg.hud_bg_color = cycle_palette(COLORS, &cfg.hud_bg_color).into();
+        }
+        EditorAction::CycleWheelStick => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                w.stick = w.stick.next();
+            }
+        }
+        EditorAction::CycleWheelSetStick => {
+            if let Selection::WheelSetEntry { set, entry } = ui.selection {
+                if let Some(SetEntry::WheelSet(ws)) =
+                    cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                {
+                    ws.stick = ws.stick.next();
+                }
+            }
+        }
+        EditorAction::ToggleSlotCloseOnSelect { slot } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                if let Some(s) = w.slots.get_mut(slot) {
+                    s.close_on_select = !s.close_on_select;
+                }
+            }
+        }
+        EditorAction::ToggleActionCloseOnSelect { set, entry } => {
+            if let Some(SetEntry::Action(qa)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                qa.close_on_select = !qa.close_on_select;
+            }
         }
         // ── per-set config ──────────────────────────────────────────────────────────
         EditorAction::EditSetBgImage { set } => {
@@ -2808,6 +2945,28 @@ fn spawn_action_editor(
             child(commands, kb, text(&kd, 10., kc));
         }
 
+        // Clear button — only when a key is bound and not currently capturing.
+        if !qa.key.is_empty() && !kf {
+            let clear_btn = clickable(
+                commands,
+                row,
+                bsn! {
+                    @FeathersToolButton {}
+                    Node {
+                        width: {Val::Px(18.)},
+                        height: {Val::Px(18.)},
+                        margin: {UiRect::left(px(3.))},
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        flex_shrink: 0.,
+                    }
+                },
+                EditorAction::ClearActionKey { set, entry },
+                Color::NONE,
+            );
+            cil_icon(commands, clear_btn, "cil-x", 10., HUD_DIM, icons);
+        }
+
         // Color swatch
         child(commands, row, text("Color", 9., DIM));
         let color_val = parse_hex_color(&qa.color, 1.0);
@@ -2909,6 +3068,15 @@ fn spawn_action_editor(
         EditorAction::ToggleEnabled { set, entry },
     );
 
+    // Close HUD on select
+    spawn_toggle_field(
+        commands,
+        card,
+        "Close on select",
+        qa.close_on_select,
+        EditorAction::ToggleActionCloseOnSelect { set, entry },
+    );
+
     // Reposition hint
     child(
         commands,
@@ -2971,6 +3139,17 @@ fn spawn_wheel_editor(
         TEXT,
         BADGE_BORDER,
         EditorAction::CycleWheelTheme,
+    );
+
+    // Stick side
+    spawn_box_field(
+        commands,
+        card,
+        "Stick",
+        w.stick.label(),
+        TEXT,
+        BADGE_BORDER,
+        EditorAction::CycleWheelStick,
     );
 
     // Cooldown
@@ -3382,9 +3561,19 @@ fn spawn_segment_editor(
         inp_c,
         if inp_kf { AMBER } else { BADGE_BORDER },
         EditorAction::CaptureSlotInput { slot },
+        EditorAction::ClearSlotInput { slot },
         slot_input,
         inp_kf,
         icons,
+    );
+
+    // Close HUD on select
+    spawn_toggle_field(
+        commands,
+        card,
+        "Close on select",
+        slot_data.map(|s| s.close_on_select).unwrap_or(false),
+        EditorAction::ToggleSlotCloseOnSelect { slot },
     );
 
     // ── Items section ───────────────────────────────────────────────────────────
@@ -3558,9 +3747,21 @@ fn spawn_wheelset_entry_editor(
         kc,
         if kf { AMBER } else { BADGE_BORDER },
         EditorAction::CaptureWheelSetSwitchKey { set, entry },
+        EditorAction::ClearWheelSetSwitchKey { set, entry },
         &ws.switch_key,
         kf,
         icons,
+    );
+
+    // Stick side
+    spawn_box_field(
+        commands,
+        card,
+        "Stick",
+        ws.stick.label(),
+        TEXT,
+        BADGE_BORDER,
+        EditorAction::CycleWheelSetStick,
     );
 
     // Wheels sub-list
@@ -4059,6 +4260,34 @@ fn apply_set_shortcuts(
         }
         hud.active_wheel_entry = 0;
         hud.dirty = true;
+    }
+}
+
+/// When the HUD is open, checks if any button's shortcut was just pressed.
+/// If `close_on_select` is set on that button, closes the HUD.
+fn hud_button_action_shortcuts(
+    keys: Res<ButtonInput<KeyCode>>,
+    gamepads: Query<&Gamepad>,
+    cfg: Res<QuickActionConfig>,
+    mut hud: ResMut<WheelHudState>,
+    ui: Res<EditorUiState>,
+) {
+    if !hud.open || ui.editing != EditFocus::None {
+        return;
+    }
+    let Some(set) = cfg.sets.get(hud.active_set) else {
+        return;
+    };
+    for entry in &set.entries {
+        if let SetEntry::Action(qa) = entry {
+            if qa.key.is_empty() || !qa.close_on_select {
+                continue;
+            }
+            if shortcut_just_pressed(&qa.key, &keys, &gamepads) {
+                hud.open = false;
+                hud.dirty = true;
+            }
+        }
     }
 }
 
