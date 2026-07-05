@@ -1810,10 +1810,10 @@ fn _default_action_height() -> f32 {
     28.0
 }
 fn _default_outer_radius() -> f32 {
-    110.0
+    140.0
 }
 fn _default_inner_radius() -> f32 {
-    38.0
+    80.0
 }
 fn _full_opacity() -> f32 {
     1.0
@@ -1993,7 +1993,7 @@ impl Default for WheelData {
             outer_radius: _default_outer_radius(),
             inner_radius: _default_inner_radius(),
             show_labels: true,
-            segment_shape: SegmentShape::Rounded,
+            segment_shape: SegmentShape::Pie,
             show_icon: true,
             highlight_color: "#f59e0b".into(),
             segment_scale: 1.0,
@@ -2132,6 +2132,9 @@ pub struct QuickActionConfig {
     /// Opacity of the full-screen HUD background overlay (0.0 = invisible, 1.0 = opaque).
     #[serde(default = "_full_opacity")]
     pub hud_bg_opacity: f32,
+    /// Hex tint color for the HUD background overlay (e.g. "#0d1520"); empty = default dark.
+    #[serde(default)]
+    pub hud_bg_color: String,
     pub sets: Vec<ActionSet>,
 }
 
@@ -2154,6 +2157,7 @@ impl Default for QuickActionConfig {
             edit_shortcut: String::new(),
             hud_open_mode: HudOpenMode::Hold,
             hud_bg_opacity: 1.0,
+            hud_bg_color: String::new(),
             sets: vec![
                 ActionSet {
                     name: "Combat".into(),
@@ -2414,9 +2418,12 @@ pub fn build_hud_canvas(
     }
 
     // Apply the user-configured HUD background opacity.
-    commands
-        .entity(root)
-        .insert(BackgroundColor(HUD_BG.with_alpha(cfg.hud_bg_opacity)));
+    let hud_bg = if cfg.hud_bg_color.is_empty() {
+        HUD_BG.with_alpha(cfg.hud_bg_opacity)
+    } else {
+        parse_hex_color(&cfg.hud_bg_color, cfg.hud_bg_opacity)
+    };
+    commands.entity(root).insert(BackgroundColor(hud_bg));
 
     // Edit toggle button — visible only while the wheel is open, hidden when
     // the editor sidebar is already showing.
@@ -2459,7 +2466,24 @@ pub fn build_hud_canvas(
                 commands.entity(btn).add_child(icon_e);
             }
         }
-        hud_child(commands, btn, hud_text("⚙", 12., HUD_DIM));
+        {
+            let handle = asset_server.load::<Image>("icons/editor/cil-cog.png");
+            let e = commands
+                .spawn((
+                    Node {
+                        width: Val::Px(14.0),
+                        height: Val::Px(14.0),
+                        ..default()
+                    },
+                    ImageNode {
+                        image: handle,
+                        color: HUD_DIM,
+                        ..default()
+                    },
+                ))
+                .id();
+            commands.entity(btn).add_child(e);
+        }
         hud_child(commands, btn, hud_text("Edit", 10., HUD_DIM));
     }
 
@@ -2957,7 +2981,25 @@ fn build_hud_set_tabs(
         WheelHudAction::SetActiveSet(prev_idx),
         HUD_PANEL_CARD,
     );
-    hud_child(commands, larrow, hud_text("‹", 14., HUD_DIM));
+    // Chevron-left PNG icon; gamepad icon overlays it when a button is assigned.
+    {
+        let handle = asset_server.load::<Image>("icons/editor/cil-chevron-left.png");
+        let e = commands
+            .spawn((
+                Node {
+                    width: Val::Px(16.0),
+                    height: Val::Px(16.0),
+                    ..default()
+                },
+                ImageNode {
+                    image: handle,
+                    color: HUD_DIM,
+                    ..default()
+                },
+            ))
+            .id();
+        commands.entity(larrow).add_child(e);
+    }
     // Overlay the assigned prev-set icon if it's a gamepad button.
     if let Some(lbl) = cfg.prev_set_key.strip_prefix("GP:") {
         if let Some(path) = icon_set.icon_path(lbl) {
@@ -3022,7 +3064,25 @@ fn build_hud_set_tabs(
         WheelHudAction::SetActiveSet(next_idx),
         HUD_PANEL_CARD,
     );
-    hud_child(commands, rarrow, hud_text("›", 14., HUD_DIM));
+    // Chevron-right PNG icon; gamepad icon overlays it when a button is assigned.
+    {
+        let handle = asset_server.load::<Image>("icons/editor/cil-chevron-right.png");
+        let e = commands
+            .spawn((
+                Node {
+                    width: Val::Px(16.0),
+                    height: Val::Px(16.0),
+                    ..default()
+                },
+                ImageNode {
+                    image: handle,
+                    color: HUD_DIM,
+                    ..default()
+                },
+            ))
+            .id();
+        commands.entity(rarrow).add_child(e);
+    }
     // Overlay the assigned next-set icon if it's a gamepad button.
     if let Some(lbl) = cfg.next_set_key.strip_prefix("GP:") {
         if let Some(path) = icon_set.icon_path(lbl) {

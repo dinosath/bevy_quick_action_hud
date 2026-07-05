@@ -10,7 +10,7 @@
 //!   ⚙ Edit button      — open in-app config editor (while HUD is open)
 
 use bevy::prelude::*;
-use bevy_wheel_menu::{
+use quick_action_hud::{
     ActionSet, HudOpenMode, HudSegmentSelected, QuickActionConfig, QuickActionHudPlugin,
     SegmentShape, SetEntry, WheelData, WheelHudState, WheelSlotData,
 };
@@ -280,6 +280,7 @@ fn setup(mut commands: Commands, mut cfg: ResMut<QuickActionConfig>) {
         edit_shortcut: String::new(),
         hud_open_mode: HudOpenMode::Hold,
         hud_bg_opacity: 1.0,
+        hud_bg_color: String::new(),
         sets: vec![
             ActionSet {
                 name: "Weapons".into(),

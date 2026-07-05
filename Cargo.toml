@@ -1,6 +1,6 @@
 
 [package]
-name = "bevy_wheel_menu"
+name = "quick_action_hud"
 version = "0.1.0"
 edition = "2021"
 

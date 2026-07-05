@@ -1737,17 +1737,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_wheel_menu"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_tweening",
- "leafwing-input-manager",
- "ron",
- "serde",
-]
-
-[[package]]
 name = "bevy_window"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4217,6 +4206,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "quick_action_hud"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_tweening",
+ "leafwing-input-manager",
+ "ron",
+ "serde",
 ]
 
 [[package]]

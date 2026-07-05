@@ -12,7 +12,7 @@
 //! - `SAVE` / `LOAD` persist the whole document as RON (`quickactions_config.ron`)
 
 use bevy::prelude::*;
-use bevy_wheel_menu::{editor::QuickActionEditorPlugin, WheelHudState};
+use quick_action_hud::{editor::QuickActionEditorPlugin, WheelHudState};
 
 fn main() {
     App::new()
