@@ -1,4 +1,4 @@
-// Wedge / pie-segment shader for the bevy_wheel_menu pie shape.
+// Wedge / pie-segment shader for the quick_action_hud pie shape.
 //
 // The UI node that uses this material is a square of size `outer_r * 2`.
 // UV (0,0) is top-left, (1,1) is bottom-right; (0.5, 0.5) is the wheel centre.

@@ -15,10 +15,15 @@
 use crate::*;
 
 use bevy::ecs::message::MessageReader;
+use bevy::feathers::controls::{
+    ButtonVariant, FeathersButton, FeathersCheckbox, FeathersToolButton,
+};
+use bevy::feathers::theme::ThemedText;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::ButtonState;
 use bevy::prelude::*;
-use bevy::ui_widgets::{ControlOrientation, Scrollbar, ScrollbarThumb};
+use bevy::ui::Checked;
+use bevy::ui_widgets::{Activate, ControlOrientation, Scrollbar, ScrollbarThumb, ValueChange};
 
 // ─── selection & edit-focus ──────────────────────────────────────────────────────
 
@@ -125,6 +130,13 @@ pub struct SegmentHoverColor(pub Color);
 pub struct EditorButton {
     pub action: EditorAction,
     pub base: Color,
+}
+
+/// Placed on [`FeathersCheckbox`] entities in toggle fields.
+/// Dispatched via the global [`ValueChange<bool>`] observer, not `Interaction::Pressed`.
+#[derive(Component, Clone)]
+pub struct EditorToggle {
+    pub action: EditorAction,
 }
 
 // ─── editor actions ───────────────────────────────────────────────────────────────
@@ -299,6 +311,8 @@ pub enum EditorAction {
     HudBgOpacityDelta {
         delta: f32,
     },
+    /// Cycle the HUD background color through a preset dark palette.
+    CycleHudBgColor,
     // ── per-set config ──────────────────────────────────────────────────────────
     EditSetBgImage {
         set: usize,
@@ -365,6 +379,29 @@ pub enum EditorAction {
     CaptureSlotInput {
         slot: usize,
     },
+    /// Clear the input binding for segment `slot`.
+    ClearSlotInput {
+        slot: usize,
+    },
+    // ── clear shortcuts ──────────────────────────────────────────────────────────
+    ClearNextSetKey,
+    ClearPrevSetKey,
+    ClearEditShortcut,
+    ClearNextWheelKey {
+        set: usize,
+    },
+    ClearPrevWheelKey {
+        set: usize,
+    },
+    ClearWheelSetSwitchKey {
+        set: usize,
+        entry: usize,
+    },
+    /// Clear the key binding for action entry `entry` in set `set`.
+    ClearActionKey {
+        set: usize,
+        entry: usize,
+    },
     // ── per-slot items ───────────────────────────────────────────────────────────
     AddSlotItem {
         slot: usize,
@@ -381,29 +418,72 @@ pub enum EditorAction {
         slot: usize,
         item: usize,
     },
+    /// Toggle stick side for the active standalone wheel.
+    CycleWheelStick,
+    /// Toggle stick side for the selected WheelSet entry.
+    CycleWheelSetStick,
+    /// Toggle close-on-select for slot `slot` of the active wheel.
+    ToggleSlotCloseOnSelect {
+        slot: usize,
+    },
+    /// Toggle close-on-select for action entry `entry` in set `set`.
+    ToggleActionCloseOnSelect {
+        set: usize,
+        entry: usize,
+    },
 }
 
 // ─── plugin ──────────────────────────────────────────────────────────────────────
 
+fn on_editor_activate(
+    trigger: On<Activate>,
+    btns: Query<&EditorButton>,
+    mut cfg: ResMut<QuickActionConfig>,
+    mut ui: ResMut<EditorUiState>,
+    mut hud: ResMut<WheelHudState>,
+) {
+    if let Ok(btn) = btns.get(trigger.event_target()) {
+        apply_action(&btn.action.clone(), &mut cfg, &mut ui, &mut hud);
+        ui.dirty = true;
+        hud.dirty = true;
+    }
+}
+
+fn on_editor_value_change_bool(
+    trigger: On<ValueChange<bool>>,
+    toggles: Query<&EditorToggle>,
+    mut cfg: ResMut<QuickActionConfig>,
+    mut ui: ResMut<EditorUiState>,
+    mut hud: ResMut<WheelHudState>,
+) {
+    if let Ok(t) = toggles.get(trigger.event_target()) {
+        apply_action(&t.action.clone(), &mut cfg, &mut ui, &mut hud);
+        ui.dirty = true;
+        hud.dirty = true;
+    }
+}
+
 /// Registers all editor UI resources and systems into `app`.
 /// Called by [`QuickActionHudPlugin`] when `editor: true`.
 pub(crate) fn register_editor_systems(app: &mut App) {
-    app.init_resource::<EditorUiState>().add_systems(
-        Update,
-        (
-            process_hud_buttons,
-            handle_editor_buttons,
-            editor_capture_key,
-            editor_capture_gamepad,
-            editor_text_input,
-            editor_button_feedback,
-            apply_set_shortcuts,
-            hud_wheel_nav,
-            check_edit_shortcut,
-            rebuild_editor,
-        )
-            .chain(),
-    );
+    app.init_resource::<EditorUiState>()
+        .add_observer(on_editor_activate)
+        .add_observer(on_editor_value_change_bool)
+        .add_systems(
+            Update,
+            (
+                process_hud_buttons,
+                editor_capture_key,
+                editor_capture_gamepad,
+                editor_text_input,
+                apply_set_shortcuts,
+                hud_button_action_shortcuts,
+                hud_wheel_nav,
+                check_edit_shortcut,
+                rebuild_editor,
+            )
+                .chain(),
+        );
 }
 
 /// Convenience plugin — equivalent to `QuickActionHudPlugin::with_editor()`.
@@ -433,6 +513,7 @@ const BLUE: Color = Color::srgb(0.38, 0.62, 0.95);
 const TEAL: Color = Color::srgb(0.52, 0.69, 0.75);
 const BADGE_BORDER: Color = Color::srgb(0.26, 0.30, 0.36);
 const ROW_SEL: Color = Color::srgba(0.38, 0.62, 0.95, 0.16);
+#[allow(dead_code)]
 const ROW_HOVER: Color = Color::srgba(1.0, 1.0, 1.0, 0.05);
 const PANEL_CARD: Color = Color::srgb(0.08, 0.10, 0.15);
 const CTRL_BG: Color = Color::srgb(0.11, 0.14, 0.19);
@@ -459,6 +540,7 @@ fn hcluster() -> impl Scene {
 
 fn row_button(bg: Color) -> impl Scene {
     bsn! {
+        @FeathersButton { @variant: ButtonVariant::Plain }
         Node {
             width: {percent(100.)}, height: {px(24.)},
             flex_direction: FlexDirection::Row,
@@ -468,7 +550,21 @@ fn row_button(bg: Color) -> impl Scene {
             border_radius: {BorderRadius::all(px(4.))},
         }
         BackgroundColor({bg})
-        Button
+    }
+}
+
+fn row_button_grow(bg: Color) -> impl Scene {
+    bsn! {
+        @FeathersButton { @variant: ButtonVariant::Plain }
+        Node {
+            flex_grow: 1., height: {px(24.)},
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            padding: {UiRect::horizontal(px(4.))},
+            border_radius: {BorderRadius::all(px(4.))},
+        }
+        BackgroundColor({bg})
     }
 }
 
@@ -482,22 +578,6 @@ fn key_badge_box() -> impl Scene {
             border_radius: {BorderRadius::all(px(3.))},
         }
         BorderColor::all(BADGE_BORDER)
-    }
-}
-
-fn set_header_row(bg: Color) -> impl Scene {
-    bsn! {
-        Node {
-            width: {percent(100.)}, height: {px(26.)},
-            margin: {UiRect::top(px(4.))},
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::SpaceBetween,
-            padding: {UiRect::horizontal(px(4.))},
-            border_radius: {BorderRadius::all(px(4.))},
-        }
-        BackgroundColor({bg})
-        Button
     }
 }
 
@@ -607,33 +687,60 @@ fn scrolled_tree(commands: &mut Commands, parent: Entity) -> Entity {
 
 fn del_btn() -> impl Scene {
     bsn! {
+        @FeathersToolButton { @variant: ButtonVariant::Plain }
         Node {
             width: {px(16.)}, height: {px(16.)},
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
         }
-        Button
     }
 }
 
-fn footer_button(label: &str, accent: Color, filled: bool) -> impl Scene {
-    let (bg, border) = if filled {
-        (GREEN_BG, Color::NONE)
+/// Spawn a tinted PNG icon from `assets/icons/editor/`.
+/// `name` is the stem, e.g. `"cil-trash"`. `size` is width & height in px.
+fn cil_icon(
+    commands: &mut Commands,
+    parent: Entity,
+    name: &str,
+    size: f32,
+    tint: Color,
+    icons: &Icons<'_>,
+) {
+    let handle = icons.srv.load::<Image>(format!("icons/editor/{name}.png"));
+    let e = commands
+        .spawn((
+            Node {
+                width: Val::Px(size),
+                height: Val::Px(size),
+                ..default()
+            },
+            ImageNode {
+                image: handle,
+                color: tint,
+                ..default()
+            },
+        ))
+        .id();
+    commands.entity(parent).add_child(e);
+}
+
+fn footer_button(label: &str, _accent: Color, filled: bool) -> impl Scene {
+    let label = label.to_string();
+    let variant = if filled {
+        ButtonVariant::Primary
     } else {
-        (Color::NONE, BADGE_BORDER)
+        ButtonVariant::Plain
     };
     bsn! {
+        @FeathersButton {
+            @variant: {variant},
+            @caption: bsn! { Text({label}) ThemedText },
+        }
         Node {
             padding: {UiRect::axes(px(16.), px(6.))},
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
-            border: {UiRect::all(px(1.))},
-            border_radius: {BorderRadius::all(px(5.))},
         }
-        BorderColor::all(border)
-        BackgroundColor({bg})
-        Button
-        Children [ text(label, 11., accent) ]
     }
 }
 
@@ -698,9 +805,41 @@ fn spawn_entry_row(
     icons: &Icons<'_>,
 ) {
     let bg = if selected { ROW_SEL } else { Color::NONE };
-    let row = clickable(commands, parent, row_button(bg), select_action, bg);
+    // Outer wrapper: [select row (flex-grow)] [delete button]
+    let outer = child(
+        commands,
+        parent,
+        bsn! {
+            Node {
+                width: {percent(100.)},
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: {px(2.)},
+            }
+        },
+    );
+    let row = clickable(commands, outer, row_button_grow(bg), select_action, bg);
     let left = child(commands, row, hcluster());
-    child(commands, left, text(icon, 10., icon_col));
+    if icon.ends_with(".png") {
+        let handle = icons.srv.load::<Image>(icon.to_string());
+        let e = commands
+            .spawn((
+                Node {
+                    width: Val::Px(12.),
+                    height: Val::Px(12.),
+                    ..default()
+                },
+                ImageNode {
+                    image: handle,
+                    color: icon_col,
+                    ..default()
+                },
+            ))
+            .id();
+        commands.entity(left).add_child(e);
+    } else if !icon.is_empty() {
+        child(commands, left, text(icon, 10., icon_col));
+    }
     child(commands, left, text(name, 11., name_col));
     let right = child(commands, row, hcluster());
     match &badge {
@@ -713,8 +852,8 @@ fn spawn_entry_row(
         Badge::None => {}
     }
     if let Some(da) = del {
-        let dx = clickable(commands, right, del_btn(), da, Color::NONE);
-        child(commands, dx, text("×", 10., DIMMER));
+        let dx = clickable(commands, outer, del_btn(), da, Color::NONE);
+        cil_icon(commands, dx, "cil-trash", 11., DIMMER, icons);
     }
 }
 
@@ -763,6 +902,7 @@ fn spawn_key_capture_field(
     display_color: Color,
     accent: Color,
     action: EditorAction,
+    clear_action: EditorAction,
     raw_key: &str,
     focused: bool,
     icons: &Icons<'_>,
@@ -784,11 +924,37 @@ fn spawn_key_capture_field(
                     ))
                     .id();
                 commands.entity(b).add_child(e);
-                return;
+                // Fall through to spawn clear button.
+            } else {
+                child(commands, b, text(display, 11., display_color));
             }
+        } else {
+            child(commands, b, text(display, 11., display_color));
         }
+    } else {
+        child(commands, b, text(display, 11., display_color));
     }
-    child(commands, b, text(display, 11., display_color));
+    // Clear button — only when the field has a value and we're not in capture mode.
+    if !raw_key.is_empty() && !focused {
+        let clear_btn = clickable(
+            commands,
+            row,
+            bsn! {
+                @FeathersToolButton {}
+                Node {
+                    width: {Val::Px(18.)},
+                    height: {Val::Px(18.)},
+                    margin: {UiRect::left(px(3.))},
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    flex_shrink: 0.,
+                }
+            },
+            clear_action,
+            Color::NONE,
+        );
+        cil_icon(commands, clear_btn, "cil-x", 10., HUD_DIM, icons);
+    }
 }
 
 // ─── rebuild ─────────────────────────────────────────────────────────────────────
@@ -889,6 +1055,7 @@ fn build_sidebar(
                     Some(set_name),
                     &qa.name.clone(),
                     EditorAction::NavBack,
+                    icons,
                 );
                 let scroll = child(commands, root, tree());
                 spawn_action_editor(commands, scroll, ui, set, entry, qa, icons);
@@ -932,6 +1099,7 @@ fn build_sidebar(
                     parent_name.as_deref(),
                     &wname,
                     EditorAction::NavBack,
+                    icons,
                 );
                 let scroll = scrolled_tree(commands, root);
                 spawn_wheel_editor(commands, scroll, ui, w, set, entry, wheel, icons);
@@ -965,6 +1133,7 @@ fn build_sidebar(
                     Some(set_name2),
                     &wname,
                     EditorAction::NavBack,
+                    icons,
                 );
                 let scroll = child(commands, root, tree());
                 spawn_wheelset_entry_editor(commands, scroll, ui, set, entry, ws, icons);
@@ -1004,6 +1173,7 @@ fn build_sidebar(
                     Some(wname.as_str()),
                     &slot_name,
                     EditorAction::NavBack,
+                    icons,
                 );
                 let scroll = child(commands, root, tree());
                 spawn_segment_editor(commands, scroll, ui, slot, w, icons);
@@ -1023,6 +1193,7 @@ fn build_editor_header(
     parent_name: Option<&str>,
     item_name: &str,
     back_action: EditorAction,
+    icons: &Icons<'_>,
 ) {
     let header = commands
         .spawn_scene(bsn! {
@@ -1042,6 +1213,7 @@ fn build_editor_header(
         commands,
         header,
         bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
             Node {
                 flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,
@@ -1049,12 +1221,11 @@ fn build_editor_header(
                 padding: {UiRect::axes(px(5.), px(3.))},
                 border_radius: {BorderRadius::all(px(4.))},
             }
-            Button
         },
         back_action,
         Color::NONE,
     );
-    child(commands, back, text("‹", 15., DIM));
+    cil_icon(commands, back, "cil-chevron-left", 14., DIM, icons);
 
     if let Some(pn) = parent_name {
         child(commands, header, text(pn, 11., DIM));
@@ -1095,6 +1266,7 @@ fn build_nav_sidebar(
         commands,
         header,
         bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
             Node {
                 flex_direction: FlexDirection::Row,
                 align_items: AlignItems::Center,
@@ -1102,14 +1274,21 @@ fn build_nav_sidebar(
                 padding: {UiRect::axes(px(5.), px(3.))},
                 border_radius: {BorderRadius::all(px(4.))},
             }
-            Button
         },
         EditorAction::NavBack,
         Color::NONE,
     );
-    child(commands, back, text("‹", 15., DIM));
+    cil_icon(commands, back, "cil-chevron-left", 14., DIM, icons);
 
-    // Breadcrumb: "Action Sets | Set Name"
+    // Breadcrumb: Action Sets | Set Name
+    cil_icon(
+        commands,
+        header,
+        "cil-applications-settings",
+        12.,
+        DIM,
+        icons,
+    );
     child(commands, header, text("Action Sets", 10., DIM));
     child(commands, header, text("|", 10., DIMMER));
 
@@ -1124,8 +1303,8 @@ fn build_nav_sidebar(
         commands,
         header,
         bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
             Node { flex_grow: 1., padding: {UiRect::axes(px(3.), px(2.))} }
-            Button
         },
         EditorAction::EditSetName { set: si },
         Color::NONE,
@@ -1154,7 +1333,7 @@ fn build_nav_sidebar(
         WheelHudAction::ToggleEditor,
         Color::NONE,
     );
-    child(commands, close, text("×", 13., DIM));
+    cil_icon(commands, close, "cil-x", 13., DIM, icons);
 
     // Scrollable body
     let scroll = child(commands, root, tree());
@@ -1175,6 +1354,7 @@ fn build_nav_sidebar(
                 set: si,
                 delta: 0.05,
             },
+            icons,
         );
 
         // ── SET CONFIG ────────────────────────────────────────────────────────────────
@@ -1220,6 +1400,7 @@ fn build_nav_sidebar(
                 set: si,
                 delta: 0.05,
             },
+            icons,
         );
 
         // Next wheel shortcut
@@ -1233,6 +1414,7 @@ fn build_nav_sidebar(
             nwc,
             if nwf { AMBER } else { BADGE_BORDER },
             EditorAction::CaptureNextWheelKey { set: si },
+            EditorAction::ClearNextWheelKey { set: si },
             &set.next_wheel_key,
             nwf,
             icons,
@@ -1249,6 +1431,7 @@ fn build_nav_sidebar(
             pwc,
             if pwf { AMBER } else { BADGE_BORDER },
             EditorAction::CapturePrevWheelKey { set: si },
+            EditorAction::ClearPrevWheelKey { set: si },
             &set.prev_wheel_key,
             pwf,
             icons,
@@ -1295,10 +1478,37 @@ fn build_root_sidebar(
         })
         .id();
     commands.entity(root).add_child(header);
-    child(commands, header, text("Action Sets", 13., TEXT));
-    let close = hud_clickable(
+    cil_icon(
         commands,
         header,
+        "cil-applications-settings",
+        14.,
+        ICON,
+        icons,
+    );
+    child(commands, header, text("Action Sets", 13., TEXT));
+    let btn_row = child(commands, header, hcluster());
+    let add_btn = clickable(
+        commands,
+        btn_row,
+        bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
+            Node {
+                width: {px(20.)}, height: {px(20.)},
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                border: {UiRect::all(px(1.))},
+                border_radius: {BorderRadius::all(px(3.))},
+            }
+            BorderColor::all(TEAL)
+        },
+        EditorAction::AddSet,
+        Color::NONE,
+    );
+    cil_icon(commands, add_btn, "cil-plus", 13., TEAL, icons);
+    let close = hud_clickable(
+        commands,
+        btn_row,
         bsn! {
             Node {
                 width: {px(20.)}, height: {px(20.)},
@@ -1313,7 +1523,7 @@ fn build_root_sidebar(
         WheelHudAction::ToggleEditor,
         Color::NONE,
     );
-    child(commands, close, text("×", 13., DIM));
+    cil_icon(commands, close, "cil-x", 13., DIM, icons);
 
     // ── scrollable set list ──────────────────────────────────────────────────────
     let scroll = child(commands, root, tree());
@@ -1342,6 +1552,7 @@ fn build_root_sidebar(
             commands,
             row,
             bsn! {
+                @FeathersButton { @variant: ButtonVariant::Plain }
                 Node {
                     flex_grow: 1.,
                     flex_direction: FlexDirection::Row,
@@ -1350,13 +1561,12 @@ fn build_root_sidebar(
                     padding: {UiRect::axes(px(4.), px(3.))},
                     border_radius: {BorderRadius::all(px(3.))},
                 }
-                Button
             },
             EditorAction::SelectSet { set: si },
             Color::NONE,
         );
-        child(commands, name_btn, text("›", 11., DIMMER));
         child(commands, name_btn, text(&set.name, 11., TEXT));
+        cil_icon(commands, name_btn, "cil-chevron-right", 10., DIMMER, icons);
 
         // Delete button
         let dx = clickable(
@@ -1366,32 +1576,8 @@ fn build_root_sidebar(
             EditorAction::DeleteSet { set: si },
             Color::NONE,
         );
-        child(commands, dx, text("×", 10., DIMMER));
+        cil_icon(commands, dx, "cil-trash", 11., DIMMER, icons);
     }
-
-    // + Add Set
-    let add_row = clickable(
-        commands,
-        scroll,
-        bsn! {
-            Node {
-                width: {percent(100.)}, height: {px(28.)},
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                column_gap: {px(6.)},
-                margin: {UiRect::top(px(4.))},
-                border: {UiRect::all(px(1.))},
-                border_radius: {BorderRadius::all(px(4.))},
-            }
-            BorderColor::all(TEAL)
-            Button
-        },
-        EditorAction::AddSet,
-        Color::NONE,
-    );
-    child(commands, add_row, text("+", 12., TEAL));
-    child(commands, add_row, text("Add Set", 10., TEAL));
 
     // ── config section ───────────────────────────────────────────────────────────────
     let config_area = commands
@@ -1409,7 +1595,6 @@ fn build_root_sidebar(
 
     // Section label
     let lrow = child(commands, config_area, hcluster());
-    child(commands, lrow, text("~", 9., TEAL));
     child(commands, lrow, text("SET CONFIG", 9., DIM));
 
     let card = child(commands, config_area, editor_card());
@@ -1425,6 +1610,7 @@ fn build_root_sidebar(
         nc,
         if nf { AMBER } else { BADGE_BORDER },
         EditorAction::CaptureNextSetKey,
+        EditorAction::ClearNextSetKey,
         &cfg.next_set_key,
         nf,
         icons,
@@ -1441,6 +1627,7 @@ fn build_root_sidebar(
         pc,
         if pf { AMBER } else { BADGE_BORDER },
         EditorAction::CapturePrevSetKey,
+        EditorAction::ClearPrevSetKey,
         &cfg.prev_set_key,
         pf,
         icons,
@@ -1475,6 +1662,7 @@ fn build_root_sidebar(
         ec,
         if ef { AMBER } else { BADGE_BORDER },
         EditorAction::CaptureEditShortcut,
+        EditorAction::ClearEditShortcut,
         &cfg.edit_shortcut,
         ef,
         icons,
@@ -1499,7 +1687,27 @@ fn build_root_sidebar(
         &format!("{:.0}%", cfg.hud_bg_opacity * 100.0),
         EditorAction::HudBgOpacityDelta { delta: -0.05 },
         EditorAction::HudBgOpacityDelta { delta: 0.05 },
+        icons,
     );
+
+    // HUD background color
+    {
+        let label = hud_label_or(&cfg.hud_bg_color);
+        let col = if cfg.hud_bg_color.is_empty() {
+            DIMMER
+        } else {
+            TEXT
+        };
+        spawn_box_field(
+            commands,
+            card,
+            "HUD bg color",
+            &label,
+            col,
+            BADGE_BORDER,
+            EditorAction::CycleHudBgColor,
+        );
+    }
 
     // ── footer ─────────────────────────────────────────────────────────────────────
     build_footer(commands, root, &ui.config_path);
@@ -1528,24 +1736,24 @@ fn build_nav_wheel_section(
         },
     );
     let hl = child(commands, sec, hcluster());
-    child(commands, hl, text("~", 9., TEAL));
+    cil_icon(commands, hl, "cil-aperture", 12., TEAL, icons);
     child(commands, hl, text("WHEEL SET", 10., DIM));
-    clickable(
+    let add_wheel_btn = clickable(
         commands,
         sec,
         bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
             Node {
                 padding: {UiRect::axes(px(6.), px(2.))},
                 border: {UiRect::all(px(1.))},
                 border_radius: {BorderRadius::all(px(3.))},
             }
             BorderColor::all(BLUE)
-            Button
-            Children [ text("+", 10., BLUE) ]
         },
         EditorAction::AddWheel { set: si },
         Color::NONE,
     );
+    cil_icon(commands, add_wheel_btn, "cil-plus", 12., BLUE, icons);
 
     let body = child(commands, parent, indent_col());
     let mut has_any = false;
@@ -1570,7 +1778,7 @@ fn build_nav_wheel_section(
                         entry: ei,
                         wheel: None,
                     },
-                    "○",
+                    "",
                     ICON,
                     &w.name,
                     TEXT,
@@ -1583,15 +1791,40 @@ fn build_nav_wheel_section(
                 has_any = true;
                 let ws_sel = ui.selection == (Selection::WheelSetEntry { set: si, entry: ei });
                 let ws_bg = if ws_sel { ROW_SEL } else { Color::NONE };
-                let wsh = clickable(
+                // Wrapper row: [standalone icon] [clickable header flex-grow]
+                let entry_row = child(
                     commands,
                     body,
-                    set_header_row(ws_bg),
+                    bsn! {
+                        Node {
+                            width: {percent(100.)},
+                            flex_direction: FlexDirection::Row,
+                            align_items: AlignItems::Center,
+                            column_gap: {px(4.)},
+                            margin: {UiRect::top(px(2.))},
+                        }
+                    },
+                );
+                let wsh = clickable(
+                    commands,
+                    entry_row,
+                    bsn! {
+                        @FeathersButton { @variant: ButtonVariant::Plain }
+                        Node {
+                            flex_grow: 1.,
+                            height: {px(26.)},
+                            flex_direction: FlexDirection::Row,
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::SpaceBetween,
+                            padding: {UiRect::horizontal(px(4.))},
+                            border_radius: {BorderRadius::all(px(4.))},
+                        }
+                        BackgroundColor({ws_bg})
+                    },
                     EditorAction::SelectWheelSetEntry { set: si, entry: ei },
                     ws_bg,
                 );
                 let whl = child(commands, wsh, hcluster());
-                child(commands, whl, text("⊞", 10., BLUE));
                 child(commands, whl, text(&ws.name, 11., TEXT));
                 let whr = child(commands, wsh, hcluster());
                 child(
@@ -1606,7 +1839,7 @@ fn build_nav_wheel_section(
                     EditorAction::DeleteEntry { set: si, entry: ei },
                     Color::NONE,
                 );
-                child(commands, dx, text("×", 10., DIMMER));
+                cil_icon(commands, dx, "cil-trash", 11., DIMMER, icons);
 
                 let wsb = child(commands, body, indent_col());
                 for (wi, w) in ws.wheels.iter().enumerate() {
@@ -1626,7 +1859,7 @@ fn build_nav_wheel_section(
                             entry: ei,
                             wheel: Some(wi),
                         },
-                        "○",
+                        "",
                         ICON,
                         &w.name,
                         TEAL,
@@ -1646,7 +1879,8 @@ fn build_nav_wheel_section(
                     EditorAction::AddWheelToSet { set: si, entry: ei },
                     Color::NONE,
                 );
-                child(commands, link, text("+ add wheel", 10., DIM));
+                cil_icon(commands, link, "cil-plus", 10., DIM, icons);
+                child(commands, link, text("add wheel", 10., DIM));
             }
             _ => {}
         }
@@ -1679,24 +1913,24 @@ fn build_nav_button_section(
         },
     );
     let hl = child(commands, sec, hcluster());
-    child(commands, hl, text("~", 9., AMBER));
+    cil_icon(commands, hl, "cil-camera-control", 12., AMBER, icons);
     child(commands, hl, text("BUTTONS", 10., DIM));
-    clickable(
+    let add_action_btn = clickable(
         commands,
         sec,
         bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
             Node {
                 padding: {UiRect::axes(px(6.), px(2.))},
                 border: {UiRect::all(px(1.))},
                 border_radius: {BorderRadius::all(px(3.))},
             }
             BorderColor::all(AMBER)
-            Button
-            Children [ text("+", 10., AMBER) ]
         },
         EditorAction::AddAction { set: si },
         Color::NONE,
     );
+    cil_icon(commands, add_action_btn, "cil-plus", 12., AMBER, icons);
 
     let body = child(commands, parent, indent_col());
     let mut has_any = false;
@@ -1715,7 +1949,7 @@ fn build_nav_button_section(
                 body,
                 sel,
                 EditorAction::SelectAction { set: si, entry: ei },
-                "□",
+                "",
                 ICON,
                 &qa.name,
                 TEXT,
@@ -1773,39 +2007,7 @@ fn build_footer(commands: &mut Commands, parent: Entity, path: &str) {
     child(commands, cap, text(path, 9., DIMMER));
 }
 
-// ─── interaction ─────────────────────────────────────────────────────────────────
-
-fn editor_button_feedback(
-    mut buttons: Query<(
-        &EditorButton,
-        &Interaction,
-        &mut BackgroundColor,
-        Option<&SegmentHoverColor>,
-    )>,
-) {
-    for (btn, interaction, mut bg, hover_col) in &mut buttons {
-        *bg = match interaction {
-            Interaction::Hovered => BackgroundColor(hover_col.map(|h| h.0).unwrap_or(ROW_HOVER)),
-            Interaction::Pressed => BackgroundColor(ROW_SEL),
-            Interaction::None => BackgroundColor(btn.base),
-        };
-    }
-}
-
-fn handle_editor_buttons(
-    buttons: Query<(&EditorButton, &Interaction), Changed<Interaction>>,
-    mut cfg: ResMut<QuickActionConfig>,
-    mut ui: ResMut<EditorUiState>,
-    mut hud: ResMut<WheelHudState>,
-) {
-    for (btn, interaction) in &buttons {
-        if *interaction == Interaction::Pressed {
-            apply_action(&btn.action, &mut cfg, &mut ui, &mut hud);
-            ui.dirty = true;
-            hud.dirty = true;
-        }
-    }
-}
+// ─── interaction ───────────────────────────────────────────────────────────────
 
 /// Handles [`WheelHudButton`] clicks spawned by the HUD (set tabs, toggle, etc.).
 fn process_hud_buttons(
@@ -1939,6 +2141,7 @@ fn apply_action(
                     name: "New Wheel Set".into(),
                     wheels: vec![WheelData::new("Wheel 1", 6)],
                     switch_key: String::new(),
+                    stick: StickSide::Right,
                 }));
             }
         }
@@ -2313,6 +2516,45 @@ fn apply_action(
         EditorAction::CaptureSlotInput { slot } => {
             ui.editing = EditFocus::SlotInput(slot);
         }
+        EditorAction::ClearSlotInput { slot } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                if let Some(s) = w.slots.get_mut(slot) {
+                    s.input.clear();
+                }
+            }
+        }
+        // ── clear shortcuts ─────────────────────────────────────────────────────────
+        EditorAction::ClearNextSetKey => {
+            cfg.next_set_key.clear();
+        }
+        EditorAction::ClearPrevSetKey => {
+            cfg.prev_set_key.clear();
+        }
+        EditorAction::ClearEditShortcut => {
+            cfg.edit_shortcut.clear();
+        }
+        EditorAction::ClearNextWheelKey { set } => {
+            if let Some(s) = cfg.sets.get_mut(set) {
+                s.next_wheel_key.clear();
+            }
+        }
+        EditorAction::ClearPrevWheelKey { set } => {
+            if let Some(s) = cfg.sets.get_mut(set) {
+                s.prev_wheel_key.clear();
+            }
+        }
+        EditorAction::ClearWheelSetSwitchKey { set, entry } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                ws.switch_key.clear();
+            }
+        }
+        EditorAction::ClearActionKey { set, entry } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.key.clear();
+            }
+        }
         // ── per-slot items ─────────────────────────────────────────────────────────────────────────
         EditorAction::AddSlotItem { slot } => {
             if let Some(w) = wheel_at(cfg, ui.selection) {
@@ -2354,6 +2596,41 @@ fn apply_action(
         }
         EditorAction::HudBgOpacityDelta { delta } => {
             cfg.hud_bg_opacity = (cfg.hud_bg_opacity + delta).clamp(0.0, 1.0);
+        }
+        EditorAction::CycleHudBgColor => {
+            const COLORS: &[&str] = &[
+                "", "#0d1520", "#111827", "#1a1a2e", "#0f172a", "#1c1c1c", "#0a0f1e", "#0e1116",
+                "#160b0b", "#0b160b",
+            ];
+            cfg.hud_bg_color = cycle_palette(COLORS, &cfg.hud_bg_color).into();
+        }
+        EditorAction::CycleWheelStick => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                w.stick = w.stick.next();
+            }
+        }
+        EditorAction::CycleWheelSetStick => {
+            if let Selection::WheelSetEntry { set, entry } = ui.selection {
+                if let Some(SetEntry::WheelSet(ws)) =
+                    cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                {
+                    ws.stick = ws.stick.next();
+                }
+            }
+        }
+        EditorAction::ToggleSlotCloseOnSelect { slot } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                if let Some(s) = w.slots.get_mut(slot) {
+                    s.close_on_select = !s.close_on_select;
+                }
+            }
+        }
+        EditorAction::ToggleActionCloseOnSelect { set, entry } => {
+            if let Some(SetEntry::Action(qa)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                qa.close_on_select = !qa.close_on_select;
+            }
         }
         // ── per-set config ──────────────────────────────────────────────────────────
         EditorAction::EditSetBgImage { set } => {
@@ -2425,9 +2702,11 @@ fn editor_card() -> impl Scene {
             row_gap: {px(4.)},
             padding: {UiRect::all(px(8.))},
             margin: {UiRect::new(px(0.), px(0.), px(2.), px(4.))},
+            border: {UiRect::all(px(1.))},
             border_radius: {BorderRadius::all(px(6.))},
         }
         BackgroundColor({PANEL_CARD})
+        BorderColor::all(SIDEBAR_BORDER)
     }
 }
 
@@ -2436,10 +2715,15 @@ fn section_label(commands: &mut Commands, parent: Entity, label: &str) {
         commands,
         parent,
         bsn! {
-            Node { padding: {UiRect::new(px(0.), px(0.), px(6.), px(2.))} }
+            Node {
+                padding: {UiRect::new(px(0.), px(0.), px(6.), px(2.))},
+                border: {UiRect::bottom(px(1.))},
+                margin: {UiRect::bottom(px(2.))},
+            }
+            BorderColor::all(SIDEBAR_BORDER)
         },
     );
-    child(commands, row, text(label, 10., DIM));
+    child(commands, row, text(label, 10., AMBER));
 }
 
 fn field_row() -> impl Scene {
@@ -2460,8 +2744,9 @@ fn label_cell(s: &str) -> impl Scene {
     }
 }
 
-fn ctrl_box(accent: Color) -> impl Scene {
+fn ctrl_box(_accent: Color) -> impl Scene {
     bsn! {
+        @FeathersButton { @variant: ButtonVariant::Plain }
         Node {
             flex_grow: 1., height: {px(20.)},
             padding: {UiRect::horizontal(px(6.))},
@@ -2470,21 +2755,19 @@ fn ctrl_box(accent: Color) -> impl Scene {
             border: {UiRect::all(px(1.))},
             border_radius: {BorderRadius::all(px(4.))},
         }
-        BorderColor::all(accent)
-        Button
+        BorderColor::all(BADGE_BORDER)
     }
 }
 
 fn mini_box() -> impl Scene {
     bsn! {
+        @FeathersToolButton { @variant: ButtonVariant::Plain }
         Node {
             width: {px(22.)}, height: {px(20.)},
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             border_radius: {BorderRadius::all(px(4.))},
         }
-        BackgroundColor({CTRL_BG})
-        Button
     }
 }
 
@@ -2495,21 +2778,6 @@ fn val_cell() -> impl Scene {
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
         }
-    }
-}
-
-fn pill_box(bg: Color, accent: Color) -> impl Scene {
-    bsn! {
-        Node {
-            padding: {UiRect::axes(px(10.), px(3.))},
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            border: {UiRect::all(px(1.))},
-            border_radius: {BorderRadius::all(px(4.))},
-        }
-        BorderColor::all(accent)
-        BackgroundColor({bg})
-        Button
     }
 }
 
@@ -2541,13 +2809,14 @@ fn spawn_toggle_field(
     action: EditorAction,
 ) {
     let row = spawn_field(commands, parent, label);
-    let (bg, accent, txt, col) = if on {
-        (GREEN_BG, GREEN, "ON", GREEN)
-    } else {
-        (Color::NONE, BADGE_BORDER, "OFF", DIM)
-    };
-    let p = clickable(commands, row, pill_box(bg, accent), action, bg);
-    child(commands, p, text(txt, 10., col));
+    // Spawn the FeathersCheckbox scene, then insert EditorToggle separately
+    // (avoids the FromTemplate/Default requirement for EditorAction).
+    let e = commands.spawn_scene(bsn! { @FeathersCheckbox }).id();
+    commands.entity(e).insert(EditorToggle { action });
+    if on {
+        commands.entity(e).insert(Checked);
+    }
+    commands.entity(row).add_child(e);
 }
 
 fn spawn_stepper_field(
@@ -2557,14 +2826,15 @@ fn spawn_stepper_field(
     value: &str,
     dec: EditorAction,
     inc: EditorAction,
+    icons: &Icons<'_>,
 ) {
     let row = spawn_field(commands, parent, label);
     let d = clickable(commands, row, mini_box(), dec, CTRL_BG);
-    child(commands, d, text("−", 13., TEXT));
+    cil_icon(commands, d, "cil-minus", 11., TEXT, icons);
     let v = child(commands, row, val_cell());
     child(commands, v, text(value, 11., TEXT));
     let i = clickable(commands, row, mini_box(), inc, CTRL_BG);
-    child(commands, i, text("+", 13., TEXT));
+    cil_icon(commands, i, "cil-plus", 11., TEXT, icons);
 }
 
 // ─── editor panels ────────────────────────────────────────────────────────────────
@@ -2600,7 +2870,7 @@ fn spawn_action_editor(
         EditorAction::DeleteEntry { set, entry },
         Color::NONE,
     );
-    child(commands, dx, text("⚙", 10., DIMMER));
+    cil_icon(commands, dx, "cil-trash", 12., DIMMER, icons);
 
     let card = child(commands, parent, editor_card());
 
@@ -2636,6 +2906,7 @@ fn spawn_action_editor(
             commands,
             row,
             bsn! {
+                @FeathersButton { @variant: ButtonVariant::Plain }
                 Node {
                     width: {px(56.)}, height: {px(20.)},
                     padding: {UiRect::horizontal(px(4.))},
@@ -2645,7 +2916,6 @@ fn spawn_action_editor(
                     border_radius: {BorderRadius::all(px(4.))},
                 }
                 BorderColor::all(if kf { AMBER } else { BADGE_BORDER })
-                Button
             },
             EditorAction::CaptureKey { set, entry },
             Color::NONE,
@@ -2673,6 +2943,28 @@ fn spawn_action_editor(
             }
         } else {
             child(commands, kb, text(&kd, 10., kc));
+        }
+
+        // Clear button — only when a key is bound and not currently capturing.
+        if !qa.key.is_empty() && !kf {
+            let clear_btn = clickable(
+                commands,
+                row,
+                bsn! {
+                    @FeathersToolButton {}
+                    Node {
+                        width: {Val::Px(18.)},
+                        height: {Val::Px(18.)},
+                        margin: {UiRect::left(px(3.))},
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        flex_shrink: 0.,
+                    }
+                },
+                EditorAction::ClearActionKey { set, entry },
+                Color::NONE,
+            );
+            cil_icon(commands, clear_btn, "cil-x", 10., HUD_DIM, icons);
         }
 
         // Color swatch
@@ -2722,7 +3014,7 @@ fn spawn_action_editor(
             },
             CTRL_BG,
         );
-        child(commands, dw, text("−", 13., TEXT));
+        cil_icon(commands, dw, "cil-minus", 11., TEXT, icons);
         let vw = child(commands, row, val_cell());
         child(commands, vw, text(&format!("{:.0}", qa.width), 11., TEXT));
         let iw = clickable(
@@ -2736,7 +3028,7 @@ fn spawn_action_editor(
             },
             CTRL_BG,
         );
-        child(commands, iw, text("+", 13., TEXT));
+        cil_icon(commands, iw, "cil-plus", 11., TEXT, icons);
 
         child(commands, row, text("H", 9., DIM));
         let dh = clickable(
@@ -2750,7 +3042,7 @@ fn spawn_action_editor(
             },
             CTRL_BG,
         );
-        child(commands, dh, text("−", 13., TEXT));
+        cil_icon(commands, dh, "cil-minus", 11., TEXT, icons);
         let vh = child(commands, row, val_cell());
         child(commands, vh, text(&format!("{:.0}", qa.height), 11., TEXT));
         let ih = clickable(
@@ -2764,7 +3056,7 @@ fn spawn_action_editor(
             },
             CTRL_BG,
         );
-        child(commands, ih, text("+", 13., TEXT));
+        cil_icon(commands, ih, "cil-plus", 11., TEXT, icons);
     }
 
     // Enabled toggle
@@ -2774,6 +3066,15 @@ fn spawn_action_editor(
         "Enabled",
         qa.enabled,
         EditorAction::ToggleEnabled { set, entry },
+    );
+
+    // Close HUD on select
+    spawn_toggle_field(
+        commands,
+        card,
+        "Close on select",
+        qa.close_on_select,
+        EditorAction::ToggleActionCloseOnSelect { set, entry },
     );
 
     // Reposition hint
@@ -2840,6 +3141,17 @@ fn spawn_wheel_editor(
         EditorAction::CycleWheelTheme,
     );
 
+    // Stick side
+    spawn_box_field(
+        commands,
+        card,
+        "Stick",
+        w.stick.label(),
+        TEXT,
+        BADGE_BORDER,
+        EditorAction::CycleWheelStick,
+    );
+
     // Cooldown
     spawn_stepper_field(
         commands,
@@ -2848,6 +3160,7 @@ fn spawn_wheel_editor(
         &format!("{:.1}", w.cooldown_secs),
         EditorAction::WheelCooldownDelta { delta: -0.5 },
         EditorAction::WheelCooldownDelta { delta: 0.5 },
+        icons,
     );
 
     // ── APPEARANCE ─────────────────────────────────────────────────────────────
@@ -2862,6 +3175,7 @@ fn spawn_wheel_editor(
         &format!("{:.0}%", w.opacity * 100.0),
         EditorAction::WheelOpacityDelta { delta: -0.05 },
         EditorAction::WheelOpacityDelta { delta: 0.05 },
+        icons,
     );
 
     // Show labels
@@ -2901,6 +3215,7 @@ fn spawn_wheel_editor(
         &format!("{:.1}", w.segment_scale),
         EditorAction::SegmentScaleDelta { delta: -0.1 },
         EditorAction::SegmentScaleDelta { delta: 0.1 },
+        icons,
     );
 
     // Highlight color
@@ -2960,6 +3275,7 @@ fn spawn_wheel_editor(
         &format!("{:.0}%", w.bg_opacity * 100.0),
         EditorAction::WheelBgOpacityDelta { delta: -0.05 },
         EditorAction::WheelBgOpacityDelta { delta: 0.05 },
+        icons,
     );
 
     // ── OUTER CIRCLE ───────────────────────────────────────────────────────────
@@ -2974,6 +3290,7 @@ fn spawn_wheel_editor(
         &format!("{:.0}", w.outer_radius),
         EditorAction::WheelOuterRadiusDelta { delta: -5.0 },
         EditorAction::WheelOuterRadiusDelta { delta: 5.0 },
+        icons,
     );
 
     // Outer border color
@@ -3007,6 +3324,7 @@ fn spawn_wheel_editor(
         &format!("{:.0}px", w.outer_border_width),
         EditorAction::WheelOuterBorderWidthDelta { delta: -0.5 },
         EditorAction::WheelOuterBorderWidthDelta { delta: 0.5 },
+        icons,
     );
 
     // ── INNER CIRCLE ───────────────────────────────────────────────────────────
@@ -3021,6 +3339,7 @@ fn spawn_wheel_editor(
         &format!("{:.0}", w.inner_radius),
         EditorAction::WheelInnerRadiusDelta { delta: -2.0 },
         EditorAction::WheelInnerRadiusDelta { delta: 2.0 },
+        icons,
     );
 
     // Inner border color
@@ -3054,6 +3373,7 @@ fn spawn_wheel_editor(
         &format!("{:.0}px", w.inner_border_width),
         EditorAction::WheelInnerBorderWidthDelta { delta: -0.5 },
         EditorAction::WheelInnerBorderWidthDelta { delta: 0.5 },
+        icons,
     );
 
     // Hub background color
@@ -3083,6 +3403,7 @@ fn spawn_wheel_editor(
         &format!("{:.0}%", w.hub_opacity * 100.0),
         EditorAction::WheelHubOpacityDelta { delta: -0.05 },
         EditorAction::WheelHubOpacityDelta { delta: 0.05 },
+        icons,
     );
 
     // ── SEGMENTS ───────────────────────────────────────────────────────────────
@@ -3099,10 +3420,11 @@ fn spawn_wheel_editor(
         },
     );
     child(commands, seg_hdr, text("SEGMENTS", 10., DIM));
-    clickable(
+    let add_slot_btn = clickable(
         commands,
         seg_hdr,
         bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
             Node {
                 padding: {UiRect::axes(px(8.), px(3.))},
                 border: {UiRect::all(px(1.))},
@@ -3110,12 +3432,11 @@ fn spawn_wheel_editor(
             }
             BorderColor::all(GREEN)
             BackgroundColor({GREEN_BG})
-            Button
-            Children [ text("+ Add", 9., GREEN) ]
         },
         EditorAction::AddSlot,
         Color::NONE,
     );
+    child(commands, add_slot_btn, text("+ Add", 9., GREEN));
 
     let seg_card = child(commands, parent, editor_card());
     if w.slots.is_empty() {
@@ -3167,7 +3488,7 @@ fn spawn_wheel_editor(
             EditorAction::RemoveSlot,
             Color::NONE,
         );
-        child(commands, dx, text("×", 10., DIMMER));
+        cil_icon(commands, dx, "cil-trash", 11., DIMMER, icons);
     }
 }
 
@@ -3240,9 +3561,19 @@ fn spawn_segment_editor(
         inp_c,
         if inp_kf { AMBER } else { BADGE_BORDER },
         EditorAction::CaptureSlotInput { slot },
+        EditorAction::ClearSlotInput { slot },
         slot_input,
         inp_kf,
         icons,
+    );
+
+    // Close HUD on select
+    spawn_toggle_field(
+        commands,
+        card,
+        "Close on select",
+        slot_data.map(|s| s.close_on_select).unwrap_or(false),
+        EditorAction::ToggleSlotCloseOnSelect { slot },
     );
 
     // ── Items section ───────────────────────────────────────────────────────────
@@ -3259,22 +3590,22 @@ fn spawn_segment_editor(
         },
     );
     child(commands, items_hdr, text("ITEMS", 10., DIM));
-    clickable(
+    let add_item_btn = clickable(
         commands,
         items_hdr,
         bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
             Node {
                 padding: {UiRect::axes(px(8.), px(3.))},
                 border: {UiRect::all(px(1.))},
                 border_radius: {BorderRadius::all(px(3.))},
             }
             BorderColor::all(TEAL)
-            Button
-            Children [ text("+ Add", 9., TEAL) ]
         },
         EditorAction::AddSlotItem { slot },
         Color::NONE,
     );
+    child(commands, add_item_btn, text("+ Add", 9., TEAL));
 
     let icard = child(commands, parent, editor_card());
     if items.is_empty() {
@@ -3312,6 +3643,7 @@ fn spawn_segment_editor(
             commands,
             item_row,
             bsn! {
+                @FeathersButton { @variant: ButtonVariant::Plain }
                 Node {
                     flex_grow: 1., height: {px(20.)},
                     padding: {UiRect::horizontal(px(6.))},
@@ -3321,7 +3653,6 @@ fn spawn_segment_editor(
                     border_radius: {BorderRadius::all(px(4.))},
                 }
                 BorderColor::all(if iname_f { AMBER } else { BADGE_BORDER })
-                Button
             },
             EditorAction::EditSlotItemName { slot, item: ii },
             Color::NONE,
@@ -3345,6 +3676,7 @@ fn spawn_segment_editor(
             commands,
             item_row,
             bsn! {
+                @FeathersButton { @variant: ButtonVariant::Plain }
                 Node {
                     width: {px(28.)}, height: {px(20.)},
                     justify_content: JustifyContent::Center,
@@ -3353,7 +3685,6 @@ fn spawn_segment_editor(
                     border_radius: {BorderRadius::all(px(4.))},
                 }
                 BorderColor::all(if iicon_f { AMBER } else { BADGE_BORDER })
-                Button
             },
             EditorAction::EditSlotItemIcon { slot, item: ii },
             Color::NONE,
@@ -3371,7 +3702,7 @@ fn spawn_segment_editor(
             EditorAction::RemoveSlotItem { slot, item: ii },
             Color::NONE,
         );
-        child(commands, dx, text("×", 10., DIMMER));
+        cil_icon(commands, dx, "cil-trash", 11., DIMMER, icons);
     }
 }
 
@@ -3416,9 +3747,21 @@ fn spawn_wheelset_entry_editor(
         kc,
         if kf { AMBER } else { BADGE_BORDER },
         EditorAction::CaptureWheelSetSwitchKey { set, entry },
+        EditorAction::ClearWheelSetSwitchKey { set, entry },
         &ws.switch_key,
         kf,
         icons,
+    );
+
+    // Stick side
+    spawn_box_field(
+        commands,
+        card,
+        "Stick",
+        ws.stick.label(),
+        TEXT,
+        BADGE_BORDER,
+        EditorAction::CycleWheelSetStick,
     );
 
     // Wheels sub-list
@@ -3435,22 +3778,22 @@ fn spawn_wheelset_entry_editor(
         },
     );
     child(commands, wh_hdr, text("WHEELS", 10., DIM));
-    clickable(
+    let add_wheel_to_set_btn = clickable(
         commands,
         wh_hdr,
         bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
             Node {
                 padding: {UiRect::axes(px(8.), px(3.))},
                 border: {UiRect::all(px(1.))},
                 border_radius: {BorderRadius::all(px(3.))},
             }
             BorderColor::all(BLUE)
-            Button
-            Children [ text("+ Add", 9., BLUE) ]
         },
         EditorAction::AddWheelToSet { set, entry },
         Color::NONE,
     );
+    child(commands, add_wheel_to_set_btn, text("+ Add", 9., BLUE));
 
     let wcard = child(commands, parent, editor_card());
     if ws.wheels.is_empty() {
@@ -3473,7 +3816,7 @@ fn spawn_wheelset_entry_editor(
                 entry,
                 wheel: Some(wi),
             },
-            "○",
+            "icons/editor/cil-aperture.png",
             ICON,
             &w.name,
             TEAL,
@@ -3917,6 +4260,34 @@ fn apply_set_shortcuts(
         }
         hud.active_wheel_entry = 0;
         hud.dirty = true;
+    }
+}
+
+/// When the HUD is open, checks if any button's shortcut was just pressed.
+/// If `close_on_select` is set on that button, closes the HUD.
+fn hud_button_action_shortcuts(
+    keys: Res<ButtonInput<KeyCode>>,
+    gamepads: Query<&Gamepad>,
+    cfg: Res<QuickActionConfig>,
+    mut hud: ResMut<WheelHudState>,
+    ui: Res<EditorUiState>,
+) {
+    if !hud.open || ui.editing != EditFocus::None {
+        return;
+    }
+    let Some(set) = cfg.sets.get(hud.active_set) else {
+        return;
+    };
+    for entry in &set.entries {
+        if let SetEntry::Action(qa) = entry {
+            if qa.key.is_empty() || !qa.close_on_select {
+                continue;
+            }
+            if shortcut_just_pressed(&qa.key, &keys, &gamepads) {
+                hud.open = false;
+                hud.dirty = true;
+            }
+        }
     }
 }
 

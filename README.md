@@ -1,4 +1,4 @@
-# bevy_wheel_menu
+# quick_action_hud
 
 A headless, gamepad-driven radial (wheel) menu library for [Bevy](https://bevyengine.org/) 0.19.
 
@@ -29,7 +29,7 @@ Add the dependency (local path or once published, crates.io):
 
 ```toml
 [dependencies]
-bevy_wheel_menu = { path = "../bevy_wheel_menu" }
+quick_action_hud = { path = "../bevy_wheel_menu" }
 bevy = "0.19"
 ```
 
@@ -37,7 +37,7 @@ bevy = "0.19"
 
 ```rust
 use bevy::prelude::*;
-use bevy_wheel_menu::*;
+use quick_action_hud::*;
 
 fn main() {
     App::new()
@@ -208,7 +208,7 @@ cargo run --example fps
 
 ## Bevy compatibility
 
-| `bevy_wheel_menu` | Bevy |
+| `quick_action_hud` | Bevy |
 |---|---|
 | `0.1` | `0.19` |
 
@@ -225,3 +225,4 @@ Licensed under either of [Apache 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at y
 | Asset | Author | License |
 |---|---|---|
 | Controller button icons (`assets/icons/`) | [Julio Cácko](https://juliocacko.itch.io/free-input-prompts) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| Editor UI icons (`assets/icons/editor/`) | [CoreUI](https://github.com/coreui/coreui-icons) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |

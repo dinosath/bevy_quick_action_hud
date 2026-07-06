@@ -10,9 +10,8 @@
 //!   ⚙ Edit button      — open in-app config editor (while HUD is open)
 
 use bevy::prelude::*;
-use bevy_wheel_menu::{
-    ActionSet, HudOpenMode, HudSegmentSelected, QuickActionConfig, QuickActionHudPlugin,
-    SegmentShape, SetEntry, WheelData, WheelHudState, WheelSlotData,
+use quick_action_hud::{
+    HudOpenMode, HudSegmentSelected, QuickActionConfig, QuickActionHudPlugin, WheelHudState,
 };
 
 // ─── FPS colour theme ────────────────────────────────────────────────────────
@@ -198,7 +197,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "FPS Wheel Menu".into(),
+                title: "FPS + Quick Action HUD".into(),
                 resolution: (1280, 720).into(),
                 ..default()
             }),
@@ -223,88 +222,11 @@ fn main() {
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 
-fn setup(mut commands: Commands, mut cfg: ResMut<QuickActionConfig>) {
+fn setup(mut commands: Commands) {
     commands.spawn(Camera2d);
     spawn_hud(&mut commands);
     spawn_crosshair(&mut commands);
     spawn_player_marker(&mut commands);
-
-    // Build the weapon wheel from the WEAPONS array.
-    let weapon_wheel = WheelData {
-        name: "Weapons".into(),
-        slots: WEAPONS
-            .iter()
-            .map(|&w| WheelSlotData {
-                name: w.name().into(),
-                icon: w.icon().into(),
-                ..Default::default()
-            })
-            .collect(),
-        outer_radius: 200.0,
-        inner_radius: 70.0,
-        show_labels: true,
-        show_icon: true,
-        segment_shape: SegmentShape::Rounded,
-        highlight_color: "#3b82f6".into(),
-        segment_scale: 0.85,
-        ..Default::default()
-    };
-
-    // Build the ability wheel from the ABILITIES array.
-    let ability_wheel = WheelData {
-        name: "Abilities".into(),
-        slots: ABILITIES
-            .iter()
-            .map(|&a| WheelSlotData {
-                name: a.name().into(),
-                icon: a.icon().into(),
-                ..Default::default()
-            })
-            .collect(),
-        outer_radius: 180.0,
-        inner_radius: 60.0,
-        show_labels: true,
-        show_icon: true,
-        segment_shape: SegmentShape::Circle,
-        highlight_color: "#f59e0b".into(),
-        segment_scale: 0.9,
-        ..Default::default()
-    };
-
-    // Replace the default QuickActionConfig with fps-specific data.
-    *cfg = QuickActionConfig {
-        next_set_key: String::new(),
-        prev_set_key: String::new(),
-        show_set_bar: false,
-        cycle_sets: false,
-        edit_shortcut: String::new(),
-        hud_open_mode: HudOpenMode::Hold,
-        hud_bg_opacity: 1.0,
-        sets: vec![
-            ActionSet {
-                name: "Weapons".into(),
-                opacity: 1.0,
-                input_override: false,
-                entries: vec![SetEntry::Wheel(weapon_wheel)],
-                bg_image: String::new(),
-                bg_image_opacity: 1.0,
-                next_wheel_key: String::new(),
-                prev_wheel_key: String::new(),
-                cycle_wheels: false,
-            },
-            ActionSet {
-                name: "Abilities".into(),
-                opacity: 1.0,
-                input_override: false,
-                entries: vec![SetEntry::Wheel(ability_wheel)],
-                bg_image: String::new(),
-                bg_image_opacity: 1.0,
-                next_wheel_key: String::new(),
-                prev_wheel_key: String::new(),
-                cycle_wheels: false,
-            },
-        ],
-    };
 }
 
 fn spawn_hud(commands: &mut Commands) {
