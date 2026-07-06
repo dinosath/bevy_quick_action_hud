@@ -1,5 +1,5 @@
 [package]
-name = "quick_action_hud"
+name = "bevy_quick_action_hud"
 version = "0.1.0"
 edition = "2021"
 
