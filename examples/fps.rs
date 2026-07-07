@@ -199,6 +199,10 @@ fn main() {
             primary_window: Some(Window {
                 title: "FPS + Quick Action HUD".into(),
                 resolution: (1280, 720).into(),
+                // Wasm: resize canvas to fill the browser viewport
+                fit_canvas_to_parent: true,
+                // Wasm: allow browser default event handling (F5, Ctrl+R, etc.)
+                prevent_default_event_handling: false,
                 ..default()
             }),
             ..default()
