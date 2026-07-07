@@ -109,6 +109,13 @@ pub struct EditorUiState {
     /// Set to true whenever the gamepad focus moves so that the PostUpdate
     /// scroll system can bring the focused item into view.
     pub scroll_to_focus: bool,
+    /// When true, `editor_capture_gamepad` skips one frame so that the
+    /// South press that activated the capture field is not itself captured.
+    pub capture_skip: bool,
+    /// Direction currently held for D-Pad nav repeat: -1 = up, 0 = none, 1 = down.
+    pub nav_hold_dir: i32,
+    /// Seconds the current D-Pad direction has been held.
+    pub nav_hold_timer: f32,
 }
 impl Default for EditorUiState {
     fn default() -> Self {
@@ -121,6 +128,9 @@ impl Default for EditorUiState {
             navfocus: 0,
             nav_count: 0,
             scroll_to_focus: false,
+            capture_skip: false,
+            nav_hold_dir: 0,
+            nav_hold_timer: 0.0,
         }
     }
 }
@@ -485,25 +495,77 @@ fn on_editor_value_change_bool(
 /// Gamepad D-pad + button navigation for the editor sidebar.
 fn editor_gamepad_nav(
     gamepads: Query<&Gamepad>,
+    time: Res<Time>,
     mut ui: ResMut<EditorUiState>,
     mut hud: ResMut<WheelHudState>,
     mut cfg: ResMut<QuickActionConfig>,
     focused_btn_q: Query<&EditorButton, With<FocusedEditorItem>>,
     focused_toggle_q: Query<&EditorToggle, With<FocusedEditorItem>>,
 ) {
+    /// Seconds held before repeat begins.
+    const HOLD_DELAY: f32 = 0.40;
+    /// Seconds between each repeated step once repeating.
+    const HOLD_REPEAT: f32 = 0.7;
+
     if !hud.editor_open || ui.editing != EditFocus::None {
+        ui.nav_hold_dir = 0;
+        ui.nav_hold_timer = 0.0;
         return;
     }
     let Some(gamepad) = gamepads.iter().next() else {
         return;
     };
-    if gamepad.just_pressed(GamepadButton::DPadDown) {
-        ui.navfocus = (ui.navfocus + 1).min(ui.nav_count.saturating_sub(1));
-        ui.dirty = true;
-    } else if gamepad.just_pressed(GamepadButton::DPadUp) {
-        ui.navfocus = ui.navfocus.saturating_sub(1);
-        ui.dirty = true;
-    } else if gamepad.just_pressed(GamepadButton::South) {
+
+    // ── D-Pad hold-to-repeat navigation ──────────────────────────────────────
+    let down = gamepad.pressed(GamepadButton::DPadDown);
+    let up = gamepad.pressed(GamepadButton::DPadUp);
+    let dir = if down {
+        1i32
+    } else if up {
+        -1
+    } else {
+        0
+    };
+
+    if dir != 0 {
+        if dir != ui.nav_hold_dir {
+            // New direction — navigate immediately and start the hold timer.
+            ui.nav_hold_dir = dir;
+            ui.nav_hold_timer = 0.0;
+            if dir > 0 {
+                ui.navfocus = (ui.navfocus + 1).min(ui.nav_count.saturating_sub(1));
+            } else {
+                ui.navfocus = ui.navfocus.saturating_sub(1);
+            }
+            ui.dirty = true;
+        } else {
+            // Same direction — accumulate time and repeat after delays.
+            ui.nav_hold_timer += time.delta_secs();
+            if ui.nav_hold_timer >= HOLD_DELAY {
+                let steps = ((ui.nav_hold_timer - HOLD_DELAY) / HOLD_REPEAT) as usize + 1;
+                let prev_steps = (((ui.nav_hold_timer - time.delta_secs()) - HOLD_DELAY).max(0.0)
+                    / HOLD_REPEAT) as usize;
+                let new_steps = steps.saturating_sub(prev_steps);
+                for _ in 0..new_steps {
+                    if dir > 0 {
+                        ui.navfocus = (ui.navfocus + 1).min(ui.nav_count.saturating_sub(1));
+                    } else {
+                        ui.navfocus = ui.navfocus.saturating_sub(1);
+                    }
+                }
+                if new_steps > 0 {
+                    ui.dirty = true;
+                }
+            }
+        }
+    } else {
+        // No direction held — reset.
+        ui.nav_hold_dir = 0;
+        ui.nav_hold_timer = 0.0;
+    }
+
+    // ── South: activate focused item ─────────────────────────────────────────
+    if gamepad.just_pressed(GamepadButton::South) {
         // Resolve the action from whichever focusable type is currently highlighted.
         let action = if let Ok(btn) = focused_btn_q.single() {
             Some(btn.action.clone())
@@ -518,6 +580,11 @@ fn editor_gamepad_nav(
             ui.dirty = true;
             if !is_nav_only_action(&action) {
                 hud.dirty = true;
+            }
+            // If we just entered a capture mode, mark capture_skip so that
+            // editor_capture_gamepad ignores the South press that triggered this.
+            if ui.editing != EditFocus::None {
+                ui.capture_skip = true;
             }
             // Only jump back to the top when we navigated into a new panel.
             // For in-place edits (toggle, stepper, cycle) keep the cursor where it is.
@@ -4501,6 +4568,12 @@ fn editor_capture_gamepad(
             | EditFocus::NextWheelKey(_)
             | EditFocus::PrevWheelKey(_)
     ) {
+        return;
+    }
+    // Skip the first frame after entering capture mode so that the South
+    // button that activated the field is not immediately captured as input.
+    if ui.capture_skip {
+        ui.capture_skip = false;
         return;
     }
     const BUTTONS: &[GamepadButton] = &[
