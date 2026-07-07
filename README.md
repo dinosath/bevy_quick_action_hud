@@ -226,3 +226,100 @@ Licensed under either of [Apache 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at y
 |---|---|---|
 | Controller button icons (`assets/icons/`) | [Julio Cácko](https://juliocacko.itch.io/free-input-prompts) | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
 | Editor UI icons (`assets/icons/editor/`) | [CoreUI](https://github.com/coreui/coreui-icons) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+
+---
+
+## WebAssembly — GitHub Pages deployment
+
+The repository includes everything needed to build the **FPS demo** (`examples/fps.rs`) for WebAssembly and publish it to **GitHub Pages** automatically.
+
+### Try it in the browser
+
+Once deployed, the demo is available at:
+
+```
+https://<owner>.github.io/bevy_quick_action_hud/
+```
+
+Replace `<owner>` with the GitHub organisation or user that owns the repository.
+
+### Prerequisites (local development)
+
+Install the required tools:
+
+```sh
+# Install the WebAssembly target
+rustup target add wasm32-unknown-unknown
+
+# Install Trunk (WASM bundler for Rust)
+cargo install trunk
+```
+
+### Run locally with Trunk
+
+```sh
+# Serve the FPS example with hot-reload
+trunk serve --example fps --open
+```
+
+This starts a local dev server at `http://localhost:8080`. The page auto-reloads when you make changes.
+
+### Build the WASM release
+
+```sh
+trunk build --release --example fps --dist dist
+```
+
+The output is written to the `dist/` directory:
+
+```
+dist/
+├── index.html
+├── <hash>.js          # JavaScript loader (wasm-bindgen)
+└── <hash>.wasm        # WebAssembly binary
+```
+
+You can serve `dist/` locally with any static file server to verify it works:
+
+```sh
+# Python
+python3 -m http.server 8080 --directory dist
+
+# Or with a simple HTTPS server (required for some browser features)
+npx serve dist
+```
+
+> **Note:** The FPS example uses gamepad input. Make sure your browser supports the [Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) and connect a controller before pressing L2 to open the wheel.
+
+### How deployment works
+
+A **GitHub Actions workflow** (`.github/workflows/deploy.yml`) runs on every push to the `main` branch. It:
+
+1. Checks out the repository
+2. Installs the stable Rust toolchain with the `wasm32-unknown-unknown` target
+3. Installs `trunk`
+4. Builds the `fps` example with `--release` and sets the public URL to `/<repo-name>/`
+5. Uploads the `dist/` folder as a Pages artifact
+6. Deploys to GitHub Pages using the official `actions/deploy-pages` action
+
+The workflow can also be triggered manually from the **Actions** tab in your repository.
+
+### One-time GitHub repository settings
+
+After the first workflow run succeeds, you must configure the Pages source:
+
+1. Go to your repository on GitHub
+2. Navigate to **Settings** → **Pages**
+3. Under **Source**, select **GitHub Actions** (not a branch)
+4. No further configuration is needed — the workflow handles everything
+
+> **Required permissions:** The workflow uses the default `GITHUB_TOKEN` which is automatically granted `write` access to the `pages` and `id-token` scopes for public repositories. If your repo is private, verify that **Actions → General → Workflow permissions** includes **Read and write permissions**.
+
+### Verifying the deployment
+
+1. Push to `main` (or trigger a manual workflow run from the Actions tab)
+2. Wait for the workflow to complete (approx. 5–10 minutes for the first build)
+3. Visit `https://<owner>.github.io/bevy_quick_action_hud/`
+4. The Bevy application should load and render the FPS demo
+5. Open the browser's developer console — there should be no JavaScript or WASM loading errors
+6. All embedded assets (shaders, icons) load without 404 errors

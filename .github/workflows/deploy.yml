@@ -1,0 +1,87 @@
+# ────────────────────────────────────────────────────────────────────────────
+# Deploy Bevy WASM demo to GitHub Pages
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Triggers:
+#   - push to "main" branch
+#   - manual dispatch (via Actions tab)
+#
+# Builds the fps example with Trunk for wasm32-unknown-unknown and publishes
+# the output to GitHub Pages using the official actions.
+#
+# The site will be available at:
+#   https://<owner>.github.io/bevy_quick_action_hud/
+#
+# Prerequisites (one-time setup):
+#   1. Go to repo Settings → Pages → "Source" → select "GitHub Actions".
+#   2. Ensure the workflow has Write permission for the `id-token` and `pages`
+#      scopes (should be granted automatically for public repos).
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Allow one concurrent deployment; cancel in-progress runs for the same
+# ref except on main (let main runs complete).
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -C opt-level=s   # optimise for size in WASM
+
+jobs:
+  build:
+    name: Build WASM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install Trunk
+        uses: jetli/trunk-action@v0.5.0
+        with:
+          version: latest
+
+      - name: Build with Trunk
+        run: |
+          trunk build \
+            --release \
+            --example fps \
+            --public-url "${{ github.event.repository.name }}/" \
+            --dist dist \
+            index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Grant the required permissions for Pages deployment
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
