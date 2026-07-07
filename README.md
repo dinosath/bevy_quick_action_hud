@@ -251,42 +251,47 @@ Install the required tools:
 # Install the WebAssembly target
 rustup target add wasm32-unknown-unknown
 
-# Install Trunk (WASM bundler for Rust)
-cargo install trunk
+# Install wasm-bindgen CLI (version must match the wasm-bindgen dependency in Cargo.lock)
+cargo install wasm-bindgen-cli --version 0.2.108
 ```
-
-### Run locally with Trunk
-
-```sh
-# Serve the FPS example with hot-reload
-trunk serve --example fps --open
-```
-
-This starts a local dev server at `http://localhost:8080`. The page auto-reloads when you make changes.
 
 ### Build the WASM release
 
+This project uses the same approach as the official Bevy examples: `cargo build` for the WASM binary followed by `wasm-bindgen` to generate the JavaScript loader.
+
 ```sh
-trunk build --release --example fps --dist dist
+# 1. Build the example for the WASM target
+cargo build --release --example fps --target wasm32-unknown-unknown
+
+# 2. Generate JS bindings
+wasm-bindgen \
+  --out-dir dist \
+  --out-name wasm_example \
+  --target web \
+  target/wasm32-unknown-unknown/release/examples/fps.wasm
+
+# 3. Copy the HTML entry point
+cp index.html dist/index.html
 ```
 
 The output is written to the `dist/` directory:
 
 ```
 dist/
-├── index.html
-├── <hash>.js          # JavaScript loader (wasm-bindgen)
-└── <hash>.wasm        # WebAssembly binary
+├── index.html              # Entry point (imports wasm_example.js)
+├── wasm_example.js         # JavaScript loader (wasm-bindgen)
+└── wasm_example_bg.wasm    # WebAssembly binary
 ```
 
-You can serve `dist/` locally with any static file server to verify it works:
+To test the build locally, serve from a **subdirectory** that matches the GitHub Pages URL:
 
 ```sh
-# Python
-python3 -m http.server 8080 --directory dist
+# Copy files into a subdirectory and serve the parent
+mkdir -p /tmp/test-site/bevy_quick_action_hud
+cp -r dist/* /tmp/test-site/bevy_quick_action_hud/
+cd /tmp/test-site && python3 -m http.server 8080
 
-# Or with a simple HTTPS server (required for some browser features)
-npx serve dist
+# Then visit http://localhost:8080/bevy_quick_action_hud/
 ```
 
 > **Note:** The FPS example uses gamepad input. Make sure your browser supports the [Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) and connect a controller before pressing L2 to open the wheel.
@@ -297,10 +302,12 @@ A **GitHub Actions workflow** (`.github/workflows/deploy.yml`) runs on every pus
 
 1. Checks out the repository
 2. Installs the stable Rust toolchain with the `wasm32-unknown-unknown` target
-3. Installs `trunk`
-4. Builds the `fps` example with `--release` and sets the public URL to `/<repo-name>/`
-5. Uploads the `dist/` folder as a Pages artifact
-6. Deploys to GitHub Pages using the official `actions/deploy-pages` action
+3. Builds the `fps` example with `cargo build --release --target wasm32-unknown-unknown`
+4. Generates JavaScript bindings with `wasm-bindgen` (using the version from `Cargo.lock`)
+5. Copies `index.html` into the output directory
+6. Runs the deployment smoke test to verify all files return HTTP 200
+7. Uploads the `dist/` folder as a Pages artifact
+8. Deploys to GitHub Pages using the official `actions/deploy-pages` action
 
 The workflow can also be triggered manually from the **Actions** tab in your repository.
 

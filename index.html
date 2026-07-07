@@ -88,8 +88,6 @@
 
   <!--
     Intercept fetch() calls for .wasm files to track real download progress.
-    This <script> runs BEFORE the Trunk module script so the override is
-    installed before wasm-bindgen starts loading the WASM binary.
   -->
   <script>
     (function() {
@@ -145,7 +143,6 @@
       };
 
       // Watch for the Bevy canvas appearing in the DOM.
-      // Bevy/winit creates a <canvas> once it's ready to render.
       var target = document.body || document.documentElement;
       var observer = new MutationObserver(function() {
         if (document.querySelector('canvas')) {
@@ -168,7 +165,10 @@
     })();
   </script>
 
-  <!-- Trunk compiles examples/fps.rs and injects the WASM loader -->
-  <link data-trunk rel="rust" data-path="examples/fps.rs" />
+  <!-- Load the wasm-bindgen generated module -->
+  <script type="module">
+    import init from './wasm_example.js';
+    await init();
+  </script>
 </body>
 </html>

@@ -6,8 +6,8 @@
 #   - push to "main" branch
 #   - manual dispatch (via Actions tab)
 #
-# Builds the fps example with Trunk for wasm32-unknown-unknown and publishes
-# the output to GitHub Pages using the official actions.
+# Builds the fps example with cargo + wasm-bindgen for wasm32-unknown-unknown
+# and publishes the output to GitHub Pages using the official actions.
 #
 # The site will be available at:
 #   https://<owner>.github.io/bevy_quick_action_hud/
@@ -55,19 +55,33 @@ jobs:
             . -> target
           cache-on-failure: false
 
-      - name: Install Trunk
-        uses: jetli/trunk-action@v0.5.0
-        with:
-          version: latest
-
-      - name: Build with Trunk
+      - name: Install wasm-bindgen CLI
         run: |
-          trunk build \
+          WASM_BINDGEN_VERSION=$(grep -A1 'name = "wasm-bindgen"' Cargo.lock | grep version | sed 's/.*"\(.*\)"/\1/')
+          echo "wasm-bindgen version: $WASM_BINDGEN_VERSION"
+          cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION"
+
+      - name: Build the example for WASM
+        run: |
+          cargo build \
             --release \
             --example fps \
-            --public-url "${{ github.event.repository.name }}/" \
-            --dist dist \
-            index.html
+            --target wasm32-unknown-unknown
+
+      - name: Generate JS bindings with wasm-bindgen
+        run: |
+          wasm-bindgen \
+            --out-dir dist \
+            --out-name wasm_example \
+            --target web \
+            target/wasm32-unknown-unknown/release/examples/fps.wasm
+
+      - name: Copy index.html to dist
+        run: cp index.html dist/index.html
+
+      - name: Run deployment smoke test
+        run: |
+          cargo test --test wasm_deploy -- --nocapture
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
