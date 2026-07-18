@@ -55,7 +55,7 @@ impl GamepadIconSet {
     }
 
     /// Returns the asset path for a gamepad button label (e.g. `"LB"`, `"A"`,
-    /// `"Start"`) as produced by [`editor::gamepad_btn_label`].
+    /// `"Start"`).
     ///
     /// Returns `None` when the label has no mapped asset for this set.
     pub fn icon_path(self, label: &str) -> Option<String> {
@@ -572,7 +572,7 @@ impl WheelStyle {
 }
 
 /// Sound asset paths a wheel plays on lifecycle events.  Attach to a wheel
-/// entity; [`play_wheel_audio`] turns the library's lifecycle messages into
+/// entity. This component turns the library's lifecycle messages into
 /// `AudioPlayer` spawns when an [`AssetServer`] is available.
 #[derive(Component, Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
 pub struct WheelAudio {
@@ -831,7 +831,7 @@ pub struct WheelSlotItemChanged {
 
 // ─── plugin ───────────────────────────────────────────────────────────────────
 
-/// Emitted by [`hud_stick_nav`] when the player releases the right stick while
+/// Emitted when the player releases the right stick while
 /// [`WheelHudState::open`] is `true` (release-to-use selection).
 #[derive(Message, Clone, Debug)]
 pub struct HudSegmentSelected {

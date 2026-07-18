@@ -330,7 +330,7 @@ pub mod audio {
                         Ok(b) => b.unchecked_into::<js_sys::ArrayBuffer>(),
                         Err(_) => return,
                     };
-                let audio_buffer = match ctx_clone.decode_audio_data(&array_buffer) {
+                let _audio_buffer = match ctx_clone.decode_audio_data(&array_buffer) {
                     Ok(b) => b,
                     Err(_) => return,
                 };
@@ -342,7 +342,7 @@ pub mod audio {
         /// Play a loaded audio buffer by URL. Does nothing if the buffer
         /// hasn't been loaded yet.
         pub fn play(&self, url: &str) {
-            let ctx = match self.context.as_ref() {
+            let _ctx = match self.context.as_ref() {
                 Some(c) => c,
                 None => return,
             };

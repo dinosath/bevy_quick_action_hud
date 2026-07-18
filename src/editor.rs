@@ -5252,7 +5252,7 @@ pub fn touch_safe_button_size(configured_size: f32, is_touch: bool) -> f32 {
 ///   Query<&mut WheelState>
 ///
 /// Use:
-///   Query<&mut WheelState, (With<WheelData>, Without<WheelHudRoot>)>
+///   `Query<&mut WheelState, (With<WheelData>, Without<WheelHudRoot>)>`
 ///
 /// This reduces false-positive matches and improves cache behaviour.
 pub type WheelStateQuery<'a> =
