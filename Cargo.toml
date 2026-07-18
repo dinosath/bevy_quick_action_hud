@@ -17,11 +17,13 @@ bevy = { version = "0.19", default-features = true, features = [
     "bevy_core_pipeline",
     "bevy_winit",
     "bevy_text",
+    "bevy_feathers",
 ] }
 serde = { version = "1", features = ["derive"] }
 ron = "0.12"
 bevy_tweening = "0.16"
 leafwing-input-manager = "0.21"
+bevy_feathers = "0.19"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = [

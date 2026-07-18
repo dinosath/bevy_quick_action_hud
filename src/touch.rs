@@ -17,6 +17,7 @@
 //! - Retroid Pocket 5 (Android + Chromium)
 //! - Safari iOS
 
+use bevy::input::touch::TouchPhase;
 use bevy::prelude::*;
 
 /// Resource tracking active touch interactions with the HUD.
@@ -48,7 +49,7 @@ pub struct TouchDrag {
 }
 
 /// Event emitted when a HUD element is tapped via touch.
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct TouchTapEvent {
     /// Position of the tap in logical (UI) pixels.
     pub position: Vec2,
@@ -57,7 +58,7 @@ pub struct TouchTapEvent {
 }
 
 /// Event emitted when a long press is detected.
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct TouchLongPressEvent {
     /// Position of the press in logical (UI) pixels.
     pub position: Vec2,
@@ -68,7 +69,7 @@ pub struct TouchLongPressEvent {
 }
 
 /// Event emitted during a drag operation.
-#[derive(Event, Clone, Debug)]
+#[derive(Message, Clone, Debug)]
 pub struct TouchDragEvent {
     /// The finger/touch ID.
     pub finger_id: u64,
@@ -121,25 +122,24 @@ impl Plugin for TouchInteractionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TouchState>()
             .init_resource::<TouchConfig>()
-            .add_event::<TouchTapEvent>()
-            .add_event::<TouchLongPressEvent>()
-            .add_event::<TouchDragEvent>()
-            .add_systems(Update, (
-                handle_touches,
-                detect_long_press,
-                cleanup_touches,
-            ).chain());
+            .add_message::<TouchTapEvent>()
+            .add_message::<TouchLongPressEvent>()
+            .add_message::<TouchDragEvent>()
+            .add_systems(
+                Update,
+                (handle_touches, detect_long_press, cleanup_touches).chain(),
+            );
     }
 }
 
 /// Reads Bevy's `TouchInput` events and emits `TouchDragEvent`s.
 fn handle_touches(
-    mut touches: EventReader<TouchInput>,
+    mut touches: MessageReader<TouchInput>,
     mut touch_state: ResMut<TouchState>,
     time: Res<Time>,
     config: Res<TouchConfig>,
-    mut drag_events: EventWriter<TouchDragEvent>,
-    mut tap_events: EventWriter<TouchTapEvent>,
+    mut drag_events: MessageWriter<TouchDragEvent>,
+    mut tap_events: MessageWriter<TouchTapEvent>,
 ) {
     for touch in touches.read() {
         let logical_pos = touch.position; // Bevy already handles DPI scaling
@@ -155,7 +155,7 @@ fn handle_touches(
                     start_pos: logical_pos,
                     start_time: time.elapsed_secs_f64(),
                 });
-                drag_events.send(TouchDragEvent {
+                drag_events.write(TouchDragEvent {
                     finger_id: touch.id,
                     target: None,
                     position: logical_pos,
@@ -172,7 +172,7 @@ fn handle_touches(
                 {
                     let delta = logical_pos - drag.current_pos;
                     drag.current_pos = logical_pos;
-                    drag_events.send(TouchDragEvent {
+                    drag_events.write(TouchDragEvent {
                         finger_id: touch.id,
                         target: drag.target,
                         position: logical_pos,
@@ -191,14 +191,11 @@ fn handle_touches(
                 {
                     let drag = touch_state.drags.swap_remove(idx);
                     let total_dist = drag.current_pos.distance(drag.start_pos);
-                    let duration =
-                        (time.elapsed_secs_f64() - drag.start_time) as f32;
+                    let duration = (time.elapsed_secs_f64() - drag.start_time) as f32;
 
                     // Check if this was a tap (short duration, minimal movement)
-                    if duration < config.tap_max_duration
-                        && total_dist < config.tap_max_distance
-                    {
-                        tap_events.send(TouchTapEvent {
+                    if duration < config.tap_max_duration && total_dist < config.tap_max_distance {
+                        tap_events.write(TouchTapEvent {
                             position: drag.current_pos,
                             target: drag.target,
                         });
@@ -207,7 +204,7 @@ fn handle_touches(
                         touch_state.last_tap_pos = drag.current_pos;
                     }
 
-                    drag_events.send(TouchDragEvent {
+                    drag_events.write(TouchDragEvent {
                         finger_id: touch.id,
                         target: drag.target,
                         position: drag.current_pos,
@@ -231,12 +228,12 @@ fn detect_long_press(
     time: Res<Time>,
     config: Res<TouchConfig>,
     touch_state: Res<TouchState>,
-    mut long_press_events: EventWriter<TouchLongPressEvent>,
+    mut long_press_events: MessageWriter<TouchLongPressEvent>,
 ) {
     for drag in &touch_state.drags {
         let elapsed = (time.elapsed_secs_f64() - drag.start_time) as f32;
         if elapsed >= config.long_press_duration {
-            long_press_events.send(TouchLongPressEvent {
+            long_press_events.write(TouchLongPressEvent {
                 position: drag.current_pos,
                 target: drag.target,
                 duration: elapsed,
@@ -249,7 +246,7 @@ fn detect_long_press(
 fn cleanup_touches(
     mut touch_state: ResMut<TouchState>,
     time: Res<Time>,
-    config: Res<TouchConfig>,
+    _config: Res<TouchConfig>,
 ) {
     touch_state.drags.retain(|drag| {
         let elapsed = (time.elapsed_secs_f64() - drag.start_time) as f32;
@@ -275,10 +272,7 @@ pub fn detect_device_pixel_ratio(mut config: ResMut<TouchConfig>) {
     if let Some(window) = web_sys::window() {
         let dpr = window.device_pixel_ratio();
         config.device_pixel_ratio = dpr;
-        bevy::log::info!(
-            "[touch] detected device pixel ratio: {:.2}",
-            dpr
-        );
+        bevy::log::info!("[touch] detected device pixel ratio: {:.2}", dpr);
     }
 }
 
@@ -302,10 +296,16 @@ pub fn prevent_default_touch_actions() {
                         },
                     );
                     canvas
-                        .add_event_listener_with_callback("touchstart", closure.as_ref().unchecked_ref())
+                        .add_event_listener_with_callback(
+                            "touchstart",
+                            closure.as_ref().unchecked_ref(),
+                        )
                         .ok();
                     canvas
-                        .add_event_listener_with_callback("touchmove", closure.as_ref().unchecked_ref())
+                        .add_event_listener_with_callback(
+                            "touchmove",
+                            closure.as_ref().unchecked_ref(),
+                        )
                         .ok();
                     closure.forget();
                 }

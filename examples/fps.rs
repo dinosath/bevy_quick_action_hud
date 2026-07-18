@@ -32,7 +32,9 @@ enum WeaponType {
     Shotgun,
     Sniper,
     RocketLauncher,
+    #[allow(clippy::upper_case_acronyms)]
     SMG,
+    #[allow(clippy::upper_case_acronyms)]
     LMG,
     Knife,
 }
@@ -423,6 +425,7 @@ fn update_ability_cooldowns(time: Res<Time>, mut player_state: ResMut<PlayerStat
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn update_hud(
     player_state: Res<PlayerState>,
     mut health_q: Query<

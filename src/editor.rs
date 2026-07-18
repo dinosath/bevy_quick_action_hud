@@ -717,7 +717,7 @@ fn scroll_editor_to_focus(
 pub(crate) fn register_editor_systems(app: &mut App) {
     app.init_resource::<EditorUiState>()
         .init_resource::<ConfigValidation>()
-        .add_event::<crate::touch::TouchDragEvent>()
+        .add_message::<crate::touch::TouchDragEvent>()
         .add_observer(on_editor_activate)
         .add_observer(on_editor_value_change_bool)
         .add_systems(
@@ -1060,6 +1060,7 @@ enum Badge {
     Dim(String),
 }
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_entry_row(
     commands: &mut Commands,
     parent: Entity,
@@ -1166,6 +1167,7 @@ fn spawn_input_badge(commands: &mut Commands, parent: Entity, key: &str, icons: 
 
 /// Like [`spawn_box_field`] but renders a controller icon inside the clickable
 /// box when `raw_key` is a `"GP:…"` binding and the field is not in capture mode.
+#[allow(clippy::too_many_arguments)]
 fn spawn_key_capture_field(
     commands: &mut Commands,
     parent: Entity,
@@ -1279,6 +1281,7 @@ fn fix_plain_button_initial_bg(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rebuild_editor(
     mut commands: Commands,
     mut ui: ResMut<EditorUiState>,
@@ -1314,7 +1317,7 @@ fn rebuild_editor(
     if hud.editor_open {
         debug!("[editor] building sidebar (focusables will be counted)");
         let icons = Icons {
-            srv: &*asset_server,
+            srv: &asset_server,
             set: *icon_set,
         };
         let (scroll_area, focusables) = build_sidebar(&mut commands, &cfg, &ui, &hud, &icons);
@@ -1622,6 +1625,7 @@ fn build_editor_header(
 }
 
 /// Set-detail sidebar: wheel-set tree + button list for one specific set.
+#[allow(clippy::too_many_arguments)]
 fn build_nav_sidebar(
     commands: &mut Commands,
     root: Entity,
@@ -2550,7 +2554,11 @@ fn is_mutative_action(action: &EditorAction) -> bool {
 
 /// Push a snapshot of `cfg` onto the undo stack, clearing the redo stack.
 /// Does nothing for non-mutative actions (selection, nav, editing focus).
-fn maybe_push_undo_snapshot(action: &EditorAction, cfg: &QuickActionConfig, ui: &mut EditorUiState) {
+fn maybe_push_undo_snapshot(
+    action: &EditorAction,
+    cfg: &QuickActionConfig,
+    ui: &mut EditorUiState,
+) {
     if !is_mutative_action(action) {
         return;
     }
@@ -3381,6 +3389,7 @@ fn spawn_stepper_field(
 // ─── editor panels ────────────────────────────────────────────────────────────────
 
 /// Button / quick-action editor.
+#[allow(clippy::too_many_arguments)]
 fn spawn_action_editor(
     commands: &mut Commands,
     parent: Entity,
@@ -3652,6 +3661,7 @@ fn key_display(focus: bool, key: &str) -> (String, Color) {
 }
 
 /// Wheel editor panel.
+#[allow(clippy::too_many_arguments)]
 fn spawn_wheel_editor(
     commands: &mut Commands,
     parent: Entity,
@@ -4298,6 +4308,7 @@ fn spawn_segment_editor(
 }
 
 /// WheelSet-entry editor panel.
+#[allow(clippy::too_many_arguments)]
 fn spawn_wheelset_entry_editor(
     commands: &mut Commands,
     parent: Entity,
@@ -4441,11 +4452,7 @@ fn spawn_wheelset_entry_editor(
 
 // ─── helpers ─────────────────────────────────────────────────────────────────────
 
-fn action_at<'a>(
-    cfg: &'a mut QuickActionConfig,
-    set: usize,
-    entry: usize,
-) -> Option<&'a mut QuickAction> {
+fn action_at(cfg: &mut QuickActionConfig, set: usize, entry: usize) -> Option<&mut QuickAction> {
     match cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry)) {
         Some(SetEntry::Action(a)) => Some(a),
         _ => None,
@@ -4802,7 +4809,6 @@ fn is_modifier(k: KeyCode) -> bool {
 
 /// Watches for the configured edit shortcut and toggles the editor sidebar.
 // ─── shortcut helper ────────────────────────────────────────────────────────────
-
 /// Returns `true` if `shortcut` was just pressed this frame.
 /// Shortcut format: plain key label (e.g. `"Tab"`) or `"GP:{label}"` for gamepad.
 fn shortcut_just_pressed(
@@ -4833,10 +4839,9 @@ fn shortcut_just_pressed(
             GamepadButton::DPadRight,
         ];
         for &btn in BTNS {
-            if gamepad_btn_label(btn) == btn_name {
-                if gamepads.iter().any(|gp| gp.just_pressed(btn)) {
-                    return true;
-                }
+            if gamepad_btn_label(btn) == btn_name && gamepads.iter().any(|gp| gp.just_pressed(btn))
+            {
+                return true;
             }
         }
         false
@@ -5059,9 +5064,9 @@ fn check_edit_shortcut(
 /// `radius` and `position` fields in the config.  Touch events are filtered
 /// to only fire when the HUD is open and a valid target is under the finger.
 fn editor_touch_drag(
-    mut drag_events: EventReader<crate::touch::TouchDragEvent>,
-    mut cfg: ResMut<QuickActionConfig>,
-    hud: Res<WheelHudState>,
+    mut drag_events: MessageReader<crate::touch::TouchDragEvent>,
+    cfg: Res<QuickActionConfig>,
+    mut hud: ResMut<WheelHudState>,
     mut ui: ResMut<EditorUiState>,
     windows: Query<&Window>,
 ) {
@@ -5072,7 +5077,7 @@ fn editor_touch_drag(
     let Ok(window) = windows.single() else {
         return;
     };
-    let scale = window.scale_factor() as f32;
+    let _scale = window.scale_factor();
 
     for ev in drag_events.read() {
         if ev.ended && ev.target.is_none() {
@@ -5128,10 +5133,7 @@ pub struct ConfigValidation {
 
 /// Validates the current config and stores warnings in [`ConfigValidation`].
 /// Runs every time the HUD is rebuilt (i.e. after each editor action).
-fn validate_config(
-    cfg: Res<QuickActionConfig>,
-    mut validation: ResMut<ConfigValidation>,
-) {
+fn validate_config(cfg: Res<QuickActionConfig>, mut validation: ResMut<ConfigValidation>) {
     let mut warnings: Vec<String> = Vec::new();
 
     // Check for empty sets
@@ -5140,7 +5142,7 @@ fn validate_config(
             warnings.push(format!("Set \"{}\" (#{}) has no entries", set.name, i));
         }
         // Check for wheels with zero slots
-        for (ei, entry) in set.entries.iter().enumerate() {
+        for entry in set.entries.iter() {
             match entry {
                 SetEntry::Wheel(w) => {
                     if w.slots.is_empty() {
@@ -5194,7 +5196,7 @@ fn validate_config(
     }
 
     // Check for empty action names
-    for (si, set) in cfg.sets.iter().enumerate() {
+    for set in cfg.sets.iter() {
         for (ei, entry) in set.entries.iter().enumerate() {
             match entry {
                 SetEntry::Action(qa) => {

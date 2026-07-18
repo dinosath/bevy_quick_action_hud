@@ -64,8 +64,16 @@ impl Plugin for WasmSupportPlugin {
 fn detect_viewport(mut info: ResMut<ViewportInfo>) {
     use bevy::log::info;
     if let Some(window) = web_sys::window() {
-        info.width = window.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(800.0);
-        info.height = window.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(600.0);
+        info.width = window
+            .inner_width()
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(800.0);
+        info.height = window
+            .inner_height()
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(600.0);
         info.device_pixel_ratio = window.device_pixel_ratio();
         info.is_landscape = info.width >= info.height;
         info!(
@@ -104,10 +112,7 @@ fn update_viewport(_info: ResMut<ViewportInfo>) {
 }
 
 /// Handles orientation changes — logs and updates state.
-fn handle_orientation(
-    info: Res<ViewportInfo>,
-    mut last: Local<bool>,
-) {
+fn handle_orientation(info: Res<ViewportInfo>, mut last: Local<bool>) {
     let current = info.is_landscape;
     if *last != current {
         bevy::log::info!(
@@ -126,7 +131,10 @@ pub fn setup_mobile_viewport() {
     if let Some(window) = web_sys::window() {
         if let Some(document) = window.document() {
             // Check if viewport meta already exists
-            let existing = document.query_selector("meta[name=viewport]").ok().flatten();
+            let existing = document
+                .query_selector("meta[name=viewport]")
+                .ok()
+                .flatten();
             if existing.is_none() {
                 let meta = document
                     .create_element("meta")
@@ -250,7 +258,10 @@ pub fn update_virtual_keyboard_state(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn update_virtual_keyboard_state(_vk_state: ResMut<VirtualKeyboardState>, _info: Res<ViewportInfo>) {
+pub fn update_virtual_keyboard_state(
+    _vk_state: ResMut<VirtualKeyboardState>,
+    _info: Res<ViewportInfo>,
+) {
     // No-op on desktop
 }
 
@@ -303,15 +314,13 @@ pub mod audio {
             let ctx_clone = ctx.clone();
             let url = url.to_string();
             wasm_bindgen_futures::spawn_local(async move {
-                let response = match web_sys::Window::fetch_with_str(
-                    &web_sys::window().unwrap_throw(),
-                    &url,
-                )
-                .await
-                {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
+                let response =
+                    match web_sys::Window::fetch_with_str(&web_sys::window().unwrap_throw(), &url)
+                        .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => return,
+                    };
                 let array_buffer = match response.array_buffer().await {
                     Ok(b) => b,
                     Err(_) => return,
@@ -359,7 +368,9 @@ pub mod audio {
     /// Desktop stub — Bevy's `AudioPlayer` handles this.
     pub struct WasmAudio;
     impl WasmAudio {
-        pub fn new() -> Option<Self> { None }
+        pub fn new() -> Option<Self> {
+            None
+        }
         pub fn resume(&self) {}
         pub fn load_buffer(&mut self, _url: &str) {}
         pub fn play(&self, _url: &str) {}

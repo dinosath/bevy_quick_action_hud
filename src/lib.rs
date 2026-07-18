@@ -186,7 +186,7 @@ fn detect_gamepad_icon_set(
     added: Query<(&Gamepad, Option<&Name>), Added<Gamepad>>,
     mut icon_set: ResMut<GamepadIconSet>,
 ) {
-    for (gamepad, name) in &added {
+    if let Some((gamepad, name)) = added.iter().next() {
         let by_id = GamepadIconSet::from_ids(gamepad.vendor_id(), gamepad.product_id());
         *icon_set = if by_id != GamepadIconSet::Xbox {
             by_id
@@ -195,7 +195,6 @@ fn detect_gamepad_icon_set(
             name.map(|n| GamepadIconSet::from_name(n.as_str()))
                 .unwrap_or(GamepadIconSet::Xbox)
         };
-        break; // first connected controller wins
     }
 }
 
@@ -1514,6 +1513,7 @@ pub fn update_active_slot_context(
 /// [`WheelActionResolved`].  This implements the contextual input-override
 /// system: a hovered slot's bindings take priority over the wheel's, which take
 /// priority over [`GlobalBindings`].
+#[allow(clippy::type_complexity)]
 pub fn resolve_wheel_input(
     gamepads: Query<&Gamepad>,
     global: Res<GlobalBindings>,
@@ -3074,7 +3074,7 @@ fn build_hud_action_buttons(
     commands.entity(parent).add_child(container);
 
     for (entry_idx, qa) in btns.iter().rev() {
-        let is_flash = flash_entry.map_or(false, |fi| fi == *entry_idx);
+        let is_flash = flash_entry == Some(*entry_idx);
         let eff = (set.opacity * qa.opacity).clamp(0.05, 1.0);
         let w = qa.width.max(40.0);
         let h = qa.height.max(20.0);
@@ -3408,7 +3408,7 @@ fn hud_stick_nav(
 
     // Read raw gamepad axes for the configured stick.
     let mut stick = Vec2::ZERO;
-    for gamepad in &gamepads {
+    if let Some(gamepad) = gamepads.iter().next() {
         let (xa, ya) = match stick_side {
             StickSide::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
             StickSide::Left => (GamepadAxis::LeftStickX, GamepadAxis::LeftStickY),
@@ -3417,7 +3417,6 @@ fn hud_stick_nav(
             gamepad.get(xa).unwrap_or(0.0),
             gamepad.get(ya).unwrap_or(0.0),
         );
-        break;
     }
 
     const DEADZONE: f32 = 0.2;
@@ -3514,7 +3513,7 @@ fn rebuild_hud(
         &mut commands,
         &cfg,
         &hud,
-        &*asset_server,
+        &asset_server,
         *icon_set,
         &mut wedge_materials,
     );
@@ -3644,9 +3643,11 @@ mod tests {
 
     #[test]
     fn wheel_state_hovered_updates() {
-        let mut state = WheelState::default();
-        state.dir = Vec2::new(1.0, 0.0);
-        state.hovered = Some(0);
+        let mut state = WheelState {
+            dir: Vec2::new(1.0, 0.0),
+            hovered: Some(0),
+            ..Default::default()
+        };
         assert_eq!(state.hovered, Some(0));
         state.hovered = None;
         assert!(state.hovered.is_none());
@@ -4106,7 +4107,12 @@ mod tests {
             },
             priority: 0,
         };
-        let result = resolve_input(InputAction::PrimaryConfirm, Some(&slot), Some(&wheel), &global);
+        let result = resolve_input(
+            InputAction::PrimaryConfirm,
+            Some(&slot),
+            Some(&wheel),
+            &global,
+        );
         assert_eq!(result, Some(WheelAction::UseItem(3)));
     }
 
@@ -4133,7 +4139,6 @@ mod tests {
 
     #[test]
     fn gamepad_btn_label_mapping() {
-        use bevy::input::gamepad::GamepadButton;
         // The editor module has a gamepad_btn_label function, but it's in a
         // different module. We test the mapping through the icon set.
         assert_eq!(GamepadIconSet::Xbox.base_path(), "icons/XGamepad/Default");

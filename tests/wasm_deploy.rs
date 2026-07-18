@@ -280,11 +280,7 @@ fn wasm_deploy_smoke_test() {
 
     // Add the hashed JS and WASM files
     for name in &staged_names {
-        if name.ends_with(".js") {
-            test_paths.push(Box::leak(
-                format!("/{}/{}", REPO_NAME, name).into_boxed_str(),
-            ));
-        } else if name.ends_with(".wasm") {
+        if name.ends_with(".js") || name.ends_with(".wasm") {
             test_paths.push(Box::leak(
                 format!("/{}/{}", REPO_NAME, name).into_boxed_str(),
             ));
