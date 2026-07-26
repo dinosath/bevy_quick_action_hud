@@ -1,0 +1,6 @@
+[advisories]
+ignore = [
+    # quick-xml 0.38.x — transitive dep via bevy (winit → wayland), no direct control
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]

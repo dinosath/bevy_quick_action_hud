@@ -7,7 +7,7 @@
 //! - D-Pad Left/Right: Increase/decrease gap between slices
 
 use bevy::prelude::*;
-use quick_action_hud::*;
+use bevy_quick_action_hud::*;
 
 // Diablo-style color theme
 mod diablo_theme {
