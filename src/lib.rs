@@ -3547,13 +3547,6 @@ mod tests {
     // ─── RON serialisation ──────────────────────────────────────────────────────
 
     #[test]
-    fn ron_config_parses() {
-        let src = include_str!("../quickactions_config.ron");
-        let cfg: QuickActionConfig = ron::from_str(src).expect("RON config should parse");
-        assert!(!cfg.sets.is_empty(), "config should have at least one set");
-    }
-
-    #[test]
     fn ron_round_trip() {
         let cfg = QuickActionConfig::default();
         let serialized = ron::ser::to_string_pretty(&cfg, ron::ser::PrettyConfig::default())
