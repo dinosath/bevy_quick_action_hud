@@ -41,6 +41,9 @@ Example Improved Code:
 
 Read [references/review-checklist.md](references/review-checklist.md) for the detailed review rubric, modern API checks, genre guidance, plugin recommendations, and generation conventions. Read only the relevant sections for the current request.
 
+For BSN, Feathers, native Bevy UI, editor tooling, or declarative-scene
+migrations, also read [references/bsn-feathers-review.md](references/bsn-feathers-review.md).
+
 ## Principles
 
 - Prefer composition over inheritance, data-oriented components, focused systems, event/message-driven communication, plugin boundaries, and minimal global state.
@@ -53,5 +56,35 @@ Read [references/review-checklist.md](references/review-checklist.md) for the de
 - Use `AssetServer`, handles, asset collections/loading states, and dependency-aware transitions. Avoid blocking asset loads or scattering untracked handles.
 - Prefer reflection, serialization, assets, scenes, and external configuration for content. Keep behavior systems separate from authored data.
 - Recommend ecosystem plugins only when they solve a demonstrated need and are compatible with Bevy 0.19; identify maintenance and integration tradeoffs for `bevy_asset_loader`, `bevy_mod_picking`, `leafwing-input-manager`, `bevy_egui`, `avian`, `bevy_kira_audio`, `iyes_progress`, `bevy_rapier`, and alternatives.
+
+## BSN and Feathers migration principles
+
+- Treat `bsn!`, scene functions, templates, `Children[]`, named references,
+  scene lists, and field-level patches as declarative hierarchy tools. Do not
+  mechanically wrap an imperative `spawn` sequence in `bsn!`.
+- Keep runtime-generated geometry, per-frame hit testing, input capture,
+  interaction ownership, asset-dependent leaves, and entity-reference wiring
+  in ECS systems when their values are not known at scene resolution time.
+- Prefer stock Feathers scene components for editor controls when their focus,
+  activation, value-change, keyboard/gamepad, accessibility, and theme
+  semantics match the product. Keep bespoke widgets for procedural or
+  game-specific interaction and document each exception.
+- Preserve the behavior contract during UI migration: captured input must be
+  consumed before global shortcuts, selection must not reopen unrelated config
+  windows, and pointer hover must not change ownership or rebuild every HUD
+  component.
+- Review scene ownership and deferred-command timing explicitly. A runtime
+  entity returned for immediate child population may justify a small imperative
+  boundary; a scene should not be forced to solve that problem by hiding a
+  command chain.
+- When diagnosing UI flicker, trace structural writes first: rebuild/despawn
+  systems, `Visibility`/`Display` writes, selection/hover ownership, z-order and
+  hit-target overlap. Add targeted logs for state transitions and entity IDs,
+  then gate work with change detection or messages rather than logging every
+  frame indefinitely.
+- In Bevy 0.19, distinguish Rust-authored BSN from disk-backed `.bsn` assets.
+  Verify the release notes before claiming serialized scene authoring is
+  available. Keep authored configuration serialization separate from transient
+  ECS presentation state until the required asset workflow exists.
 
 Do not force Unity-style MonoBehaviours, Unreal-style actor-centric managers, massive global managers, or OOP abstractions that fight ECS. State uncertainty when official documentation is unavailable, and propose a verification step.

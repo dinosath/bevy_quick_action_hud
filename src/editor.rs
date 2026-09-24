@@ -16,7 +16,7 @@ use crate::*;
 
 use bevy::ecs::message::MessageReader;
 use bevy::feathers::controls::{
-    ButtonVariant, FeathersButton, FeathersCheckbox, FeathersToolButton,
+    ButtonVariant, FeathersButton, FeathersCheckbox, FeathersScrollbar, FeathersToolButton,
 };
 use bevy::feathers::focus::FocusIndicator as FeathersFocusIndicator;
 use bevy::feathers::theme::ThemedText;
@@ -26,190 +26,18 @@ use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::ui::Checked;
 use bevy::ui::{OverflowAxis, UiGlobalTransform};
-use bevy::ui_widgets::{Activate, ControlOrientation, Scrollbar, ScrollbarThumb, ValueChange};
+use bevy::ui_widgets::{Activate, ControlOrientation, Scrollbar, ValueChange};
 
-// ─── selection & edit-focus ──────────────────────────────────────────────────────
+pub(crate) mod components;
+mod state;
+mod theme;
 
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
-pub enum Selection {
-    #[default]
-    None,
-    Action {
-        set: usize,
-        entry: usize,
-    },
-    HudSwitch {
-        set: usize,
-        entry: usize,
-    },
-    Wheel {
-        set: usize,
-        entry: usize,
-        wheel: Option<usize>,
-    },
-    Set {
-        set: usize,
-    },
-    SetSwitch,
-    /// A [`SetEntry::WheelSet`] entry (to edit its name / switch-key).
-    WheelSetEntry {
-        set: usize,
-        entry: usize,
-    },
-    Segment {
-        set: usize,
-        entry: usize,
-        wheel: Option<usize>,
-        slot: usize,
-    },
-}
-
-#[derive(Clone, Copy, PartialEq, Debug, Default)]
-pub enum EditFocus {
-    #[default]
-    None,
-    Name,
-    Key,
-    HudSwitchKey,
-    SetName,
-    WheelName,
-    SlotName(usize),
-    NextSetKey,
-    PrevSetKey,
-    /// Typing the name of the selected wheel-set entry.
-    WheelSetName,
-    /// Capturing the cycle-key for the selected wheel-set entry.
-    WheelSetSwitchKey,
-    WheelSetStick,
-    SlotIcon(usize),
-    /// Capturing an input binding for a segment (keyboard or gamepad).
-    SlotInput(usize),
-    /// Editing the name of item `item` inside slot `slot`.
-    SlotItemName(usize, usize),
-    /// Editing the icon of item `item` inside slot `slot`.
-    SlotItemIcon(usize, usize),
-    /// Capturing a key/button for the global edit shortcut.
-    EditShortcut,
-    /// Editing the bg_image path of a set.
-    SetBgImage(usize),
-    /// Capturing the next-wheel shortcut for a set.
-    NextWheelKey(usize),
-    /// Capturing the prev-wheel shortcut for a set.
-    PrevWheelKey(usize),
-    WheelSetNextKey {
-        set: usize,
-        entry: usize,
-    },
-    WheelSetPrevKey {
-        set: usize,
-        entry: usize,
-    },
-}
-
-// ─── editor state ────────────────────────────────────────────────────────────────
-
-#[derive(Resource)]
-pub struct EditorUiState {
-    pub dirty: bool,
-    pub selection: Selection,
-    pub editing: EditFocus,
-    pub config_path: String,
-    /// Persisted vertical scroll offset for the wheel editor panel.
-    pub wheel_scroll_y: f32,
-    // active_set and editor_open moved to WheelHudState in lib.rs
-    /// Index of the currently gamepad-focused item in the sidebar.
-    pub navfocus: usize,
-    /// Total number of focusable items in the current sidebar view.
-    pub nav_count: usize,
-    /// Set to true whenever the gamepad focus moves so that the PostUpdate
-    /// scroll system can bring the focused item into view.
-    pub scroll_to_focus: bool,
-    /// When true, `editor_capture_gamepad` skips one frame so that the
-    /// South press that activated the capture field is not itself captured.
-    pub capture_skip: bool,
-    /// Set when a key/gamepad input was consumed by binding capture. Later
-    /// shortcut systems must ignore that same input for this frame.
-    pub capture_consumed: bool,
-    /// Direction currently held for D-Pad nav repeat: -1 = up, 0 = none, 1 = down.
-    pub nav_hold_dir: i32,
-    /// Seconds the current D-Pad direction has been held.
-    pub nav_hold_timer: f32,
-    /// Snapshot history for undo/redo.
-    pub undo_stack: Vec<QuickActionConfig>,
-    /// Redo stack (cleared when a new action is performed).
-    pub redo_stack: Vec<QuickActionConfig>,
-    /// Maximum number of undo steps to keep.
-    pub undo_limit: usize,
-}
-impl Default for EditorUiState {
-    fn default() -> Self {
-        Self {
-            dirty: true,
-            selection: Selection::None,
-            editing: EditFocus::None,
-            config_path: crate::CONFIG_FILE.into(),
-            wheel_scroll_y: 0.0,
-            navfocus: 0,
-            nav_count: 0,
-            scroll_to_focus: false,
-            capture_skip: false,
-            capture_consumed: false,
-            nav_hold_dir: 0,
-            nav_hold_timer: 0.0,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
-            undo_limit: 50,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum MiddleDragTarget {
-    Action {
-        set: usize,
-        entry: usize,
-    },
-    Wheel {
-        set: usize,
-        entry: usize,
-        wheel: Option<usize>,
-    },
-}
-
-#[derive(Resource, Default)]
-struct HudMiddleDrag {
-    target: Option<MiddleDragTarget>,
-}
-
-// ─── components ──────────────────────────────────────────────────────────────────
-
-#[derive(Component)]
-pub struct EditorRoot;
-
-/// Marks the scrollable content entity inside the wheel editor panel.
-/// Used by `rebuild_editor` to persist the vertical scroll offset across rebuilds.
-#[derive(Component)]
-pub struct EditorScrollArea;
-
-#[derive(Component)]
-pub struct SegmentHoverColor(pub Color);
-
-#[derive(Component, Clone)]
-pub struct EditorButton {
-    pub action: EditorAction,
-    pub base: Color,
-}
-
-/// Placed on [`FeathersCheckbox`] entities in toggle fields.
-/// Dispatched via the global [`ValueChange<bool>`] observer, not `Interaction::Pressed`.
-#[derive(Component, Clone)]
-pub struct EditorToggle {
-    pub action: EditorAction,
-}
-
-/// Marks the currently gamepad-focused editor button.
-#[derive(Component)]
-pub struct FocusedEditorItem;
+pub use components::{
+    EditorButton, EditorRoot, EditorScrollArea, EditorToggle, FocusedEditorItem, SegmentHoverColor,
+};
+pub use state::{EditFocus, EditorUiState, Selection};
+use state::{HudMiddleDrag, MiddleDragTarget};
+use theme::*;
 
 // ─── editor actions ───────────────────────────────────────────────────────────────
 
@@ -1222,7 +1050,8 @@ pub(crate) fn register_editor_systems(app: &mut App) {
                 validate_config,
                 rebuild_editor,
             )
-                .chain(),
+                .chain()
+                .in_set(crate::scheduling::EditorSet::Runtime),
         )
         .add_systems(
             PostUpdate,
@@ -1242,30 +1071,6 @@ impl Plugin for QuickActionEditorPlugin {
         app.add_plugins(QuickActionHudPlugin::with_editor());
     }
 }
-
-// ─── palette ─────────────────────────────────────────────────────────────────────
-
-const BG_SIDEBAR: Color = Color::srgb(0.075, 0.08, 0.085);
-#[allow(dead_code)]
-const BG_MAIN: Color = Color::srgb(0.105, 0.11, 0.115);
-const SIDEBAR_BORDER: Color = Color::srgb(0.23, 0.24, 0.25);
-const GREEN: Color = Color::srgb(0.62, 0.92, 0.10);
-const GREEN_BG: Color = Color::srgba(0.62, 0.92, 0.10, 0.14);
-const TEXT: Color = Color::srgb(0.91, 0.91, 0.90);
-const DIM: Color = Color::srgb(0.65, 0.65, 0.64);
-const DIMMER: Color = Color::srgb(0.39, 0.40, 0.40);
-const ICON: Color = Color::srgb(0.80, 0.80, 0.78);
-const AMBER: Color = Color::srgb(0.95, 0.54, 0.57);
-const BLUE: Color = Color::srgb(0.23, 0.47, 1.0);
-const TEAL: Color = Color::srgb(0.10, 0.72, 0.63);
-const PURPLE: Color = Color::srgb(0.63, 0.42, 0.95);
-const BADGE_BORDER: Color = Color::srgb(0.34, 0.35, 0.35);
-const ROW_SEL: Color = Color::srgba(0.94, 0.48, 0.52, 0.18);
-#[allow(dead_code)]
-const ROW_HOVER: Color = Color::srgba(1.0, 1.0, 1.0, 0.05);
-const PANEL_CARD: Color = Color::srgb(0.15, 0.16, 0.16);
-const CTRL_BG: Color = Color::srgb(0.12, 0.13, 0.13);
-const GAMEPAD_FOCUS_OUTLINE: Color = Color::srgba(0.95, 0.54, 0.57, 0.90);
 
 // ─── primitive bsn! helpers ──────────────────────────────────────────────────────
 
@@ -1406,34 +1211,23 @@ fn scrolled_tree(commands: &mut Commands, parent: Entity) -> Entity {
         .id();
     commands.entity(wrapper).add_child(scroll_area);
 
-    // Scrollbar track — wider for touch-friendly high-DPI interaction
+    // Use the stock Feathers scrollbar scene for the track, thumb, hover state
+    // and pointer cursor. The target is still runtime data because the content
+    // entity is returned to the row builder immediately; BSN is responsible for
+    // the widget hierarchy and Feathers owns its interaction styling.
     let track = commands
-        .spawn((
-            Node {
-                min_width: Val::Px(SCROLLBAR_WIDTH),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.06, 0.08, 0.12, 0.70)),
-            Scrollbar {
-                target: scroll_area,
-                orientation: ControlOrientation::Vertical,
-                min_thumb_length: 20.0,
-            },
-        ))
+        .spawn_scene(bsn! {
+            @FeathersScrollbar {
+                @target: {scroll_area},
+                @orientation: {ControlOrientation::Vertical}
+            }
+            // Field-level BSN patch: Feathers retains ownership of the
+            // scrollbar Node, theme tokens and generated thumb.
+            Scrollbar { min_thumb_length: 20.0 }
+            Node { min_width: {Val::Px(SCROLLBAR_WIDTH)} }
+        })
         .id();
     commands.entity(wrapper).add_child(track);
-
-    // Scrollbar thumb — NO Node; the Scrollbar system owns its geometry
-    let thumb = commands
-        .spawn((
-            ScrollbarThumb {
-                border_radius: BorderRadius::all(Val::Px(SCROLLBAR_WIDTH / 2.0)),
-                border: UiRect::all(Val::Px(0.0)),
-            },
-            BackgroundColor(Color::srgba(0.48, 0.50, 0.55, 0.85)),
-        ))
-        .id();
-    commands.entity(track).add_child(thumb);
 
     scroll_area
 }
@@ -2023,7 +1817,7 @@ fn build_sidebar(
                                 None
                             }
                         })
-                        .unwrap_or("Wheel Set")
+                        .unwrap_or("Radial menu set")
                         .to_string()
                 });
                 let wname = w.name.clone();
@@ -2372,8 +2166,12 @@ fn build_nav_sidebar(
         let add_card = child(commands, scroll, editor_card());
         for (label, action, color) in [
             ("+ Button", EditorAction::AddAction { set: si }, AMBER),
-            ("+ Wheel", EditorAction::AddWheel { set: si }, BLUE),
-            ("+ Wheel set", EditorAction::AddWheelSet { set: si }, TEAL),
+            ("+ Radial menu", EditorAction::AddWheel { set: si }, BLUE),
+            (
+                "+ Radial menu set",
+                EditorAction::AddWheelSet { set: si },
+                TEAL,
+            ),
             (
                 "+ HUD switch",
                 EditorAction::AddHudSwitch { set: si },
@@ -2883,7 +2681,7 @@ fn build_nav_wheel_section(
         }
     }
     if !has_any {
-        child(commands, body, text("No wheels yet.", 10., DIMMER));
+        child(commands, body, text("No radial menus yet.", 10., DIMMER));
     }
 }
 
@@ -3900,6 +3698,7 @@ pub(crate) fn apply_action(
             let n = cfg.sets.len() + 1;
             cfg.sets.push(ActionSet {
                 name: format!("Set {}", n),
+                icon: String::new(),
                 enabled: true,
                 opacity: 1.0,
                 input_override: false,
@@ -3978,14 +3777,14 @@ pub(crate) fn apply_action(
         EditorAction::AddWheel { set } => {
             if let Some(s) = cfg.sets.get_mut(set) {
                 s.entries
-                    .push(SetEntry::Wheel(WheelData::new("New Wheel", 6)));
+                    .push(SetEntry::Wheel(WheelData::new("New radial menu", 6)));
             }
         }
         EditorAction::AddWheelSet { set } => {
             if let Some(s) = cfg.sets.get_mut(set) {
                 s.entries.push(SetEntry::WheelSet(WheelSetData {
-                    name: "New Wheel Set".into(),
-                    wheels: vec![WheelData::new("Wheel 1", 6)],
+                    name: "New radial menu set".into(),
+                    wheels: vec![WheelData::new("Radial menu 1", 6)],
                     stick: StickSide::Right,
                     ..default()
                 }));
@@ -4007,7 +3806,7 @@ pub(crate) fn apply_action(
             {
                 if ws.wheels.len() < ws.max_wheels {
                     let n = ws.wheels.len() + 1;
-                    let mut wheel = WheelData::new(format!("Wheel {}", n), 6);
+                    let mut wheel = WheelData::new(format!("Radial menu {}", n), 6);
                     wheelset_visuals(ws).apply_to(&mut wheel);
                     ws.wheels.push(wheel);
                 }
@@ -5907,7 +5706,7 @@ fn spawn_wheelset_entry_editor(
     let prev_key_btn = spawn_key_capture_field(
         commands,
         card,
-        "Previous wheel",
+        "Previous radial menu",
         &pkd,
         pkc,
         if pkf { AMBER } else { BADGE_BORDER },
@@ -5926,7 +5725,7 @@ fn spawn_wheelset_entry_editor(
     let next_key_btn = spawn_key_capture_field(
         commands,
         card,
-        "Next wheel",
+        "Next radial menu",
         &nkd,
         nkc,
         if nkf { AMBER } else { BADGE_BORDER },
@@ -5942,7 +5741,7 @@ fn spawn_wheelset_entry_editor(
     let (min_dec, min_inc) = spawn_stepper_field(
         commands,
         card,
-        "Minimum wheels",
+        "Minimum radial menus",
         &ws.min_wheels.to_string(),
         EditorAction::WheelSetMinDelta {
             set,
@@ -5961,7 +5760,7 @@ fn spawn_wheelset_entry_editor(
     let (max_dec, max_inc) = spawn_stepper_field(
         commands,
         card,
-        "Maximum wheels",
+        "Maximum radial menus",
         &ws.max_wheels.to_string(),
         EditorAction::WheelSetMaxDelta {
             set,
@@ -5980,7 +5779,7 @@ fn spawn_wheelset_entry_editor(
     spawn_toggle_field(
         commands,
         card,
-        "Cycle wheels",
+        "Cycle radial menus",
         ws.cycle_wheels,
         EditorAction::ToggleWheelSetCycle { set, entry },
         focusables,
@@ -5990,14 +5789,14 @@ fn spawn_wheelset_entry_editor(
     let prev_wheel = clickable(
         commands,
         wheel_nav,
-        footer_button("‹ Previous wheel", DIM, false),
+        footer_button("‹ Previous radial menu", DIM, false),
         EditorAction::SwitchWheelPrev { set, entry },
         Color::NONE,
     );
     let next_wheel = clickable(
         commands,
         wheel_nav,
-        footer_button("Next wheel ›", DIM, false),
+        footer_button("Next radial menu ›", DIM, false),
         EditorAction::SwitchWheelNext { set, entry },
         Color::NONE,
     );
@@ -6038,7 +5837,7 @@ fn spawn_wheelset_entry_editor(
 
     let wcard = child(commands, parent, editor_card());
     if ws.wheels.is_empty() {
-        child(commands, wcard, text("No wheels.", 10., DIMMER));
+        child(commands, wcard, text("No radial menus.", 10., DIMMER));
     }
     for (wi, w) in ws.wheels.iter().enumerate() {
         let wsel = ui.selection
@@ -6078,7 +5877,7 @@ fn spawn_wheelset_entry_editor(
         parent,
         bsn! {
             Node { padding: {UiRect::new(px(4.), px(0.), px(8.), px(0.))} }
-            Children [ text("Select a wheel above to edit its\nsegments and settings.", 9., DIMMER) ]
+            Children [ text("Select a radial menu above to edit its\nsectors and settings.", 9., DIMMER) ]
         },
     );
 }
@@ -6834,6 +6633,12 @@ fn check_edit_shortcut(
     mut hud: ResMut<WheelHudState>,
     mut ui: ResMut<EditorUiState>,
 ) {
+    // The HUD open shortcut owns HUD visibility. The edit shortcut must never
+    // implicitly open the HUD; edit mode is only meaningful while the HUD is
+    // already open.
+    if !hud.open {
+        return;
+    }
     if cfg.edit_shortcut.is_empty() {
         return;
     }
@@ -6858,18 +6663,13 @@ fn check_edit_shortcut(
             ui.selection = Selection::None;
             ui.editing = EditFocus::None;
         } else {
-            // Open editor — also force-open the HUD overlay so the wheel preview
-            // is visible even if the HUD was previously closed.
+            // Open editor only inside an already-open HUD.
             info!(
-                "[editor] opening editor via shortcut (was open={}, editor_open={})",
+                "[editor] opening editor via shortcut (hud open={}, editor_open={})",
                 hud.open, hud.editor_open
             );
             hud.editor_open = true;
             hud.edit_control_focus = Some(0);
-            if !hud.open {
-                info!("[editor] auto-opening HUD so wheel preview is visible");
-                hud.open = true;
-            }
         }
         hud.dirty = true;
         ui.dirty = true;
@@ -7030,7 +6830,7 @@ fn validate_config(cfg: Res<QuickActionConfig>, mut validation: ResMut<ConfigVal
                 SetEntry::Wheel(w) => {
                     if w.slots.is_empty() {
                         warnings.push(format!(
-                            "Wheel \"{}\" in set \"{}\" has no slots",
+                            "Radial menu \"{}\" in page \"{}\" has no sectors",
                             w.name, set.name
                         ));
                     }
@@ -7038,14 +6838,14 @@ fn validate_config(cfg: Res<QuickActionConfig>, mut validation: ResMut<ConfigVal
                 SetEntry::WheelSet(ws) => {
                     if ws.wheels.is_empty() {
                         warnings.push(format!(
-                            "Wheel set \"{}\" in set \"{}\" has no wheels",
+                            "Radial menu set \"{}\" in page \"{}\" has no radial menus",
                             ws.name, set.name
                         ));
                     }
                     for (wi, w) in ws.wheels.iter().enumerate() {
                         if w.slots.is_empty() {
                             warnings.push(format!(
-                                "Wheel \"{}\" (#{}) in wheel set \"{}\" has no slots",
+                                "Radial menu \"{}\" (#{}) in radial menu set \"{}\" has no sectors",
                                 w.name, wi, ws.name
                             ));
                         }
@@ -7064,26 +6864,50 @@ fn validate_config(cfg: Res<QuickActionConfig>, mut validation: ResMut<ConfigVal
         }
     }
 
-    // Check for duplicate shortcut keys across actions
-    let mut seen_keys: std::collections::HashMap<&str, Vec<(usize, usize)>> =
-        std::collections::HashMap::new();
-    for (si, set) in cfg.sets.iter().enumerate() {
-        for (ei, entry) in set.entries.iter().enumerate() {
-            if let SetEntry::Action(qa) = entry {
-                if !qa.key.is_empty() {
-                    seen_keys.entry(&qa.key).or_default().push((si, ei));
+    // Every component shortcut must be unique within its HUD page. This
+    // includes buttons, sectors, HUD switches, and wheel-set next/previous
+    // wheel shortcuts; identical shortcuts on different pages are allowed.
+    for (si, page) in cfg.sets.iter().enumerate() {
+        let mut seen_keys: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut record_key = |key: &str| {
+            if !key.is_empty() {
+                *seen_keys.entry(key.to_owned()).or_default() += 1;
+            }
+        };
+        for entry in &page.entries {
+            match entry {
+                SetEntry::Action(button) => record_key(&button.key),
+                SetEntry::HudSwitch(switch) => record_key(&switch.key),
+                SetEntry::Wheel(wheel) => {
+                    for sector in &wheel.slots {
+                        record_key(&sector.input);
+                    }
+                }
+                SetEntry::WheelSet(wheel_set) => {
+                    record_key(&wheel_set.prev_wheel_key);
+                    record_key(&wheel_set.next_wheel_key);
+                    record_key(&wheel_set.switch_key);
+                    for wheel in &wheel_set.wheels {
+                        for sector in &wheel.slots {
+                            record_key(&sector.input);
+                        }
+                    }
                 }
             }
         }
-    }
-    for (key, locations) in &seen_keys {
-        if locations.len() > 1 {
-            warnings.push(format!(
-                "Duplicate shortcut key \"{}\" used by {} actions",
-                key,
-                locations.len()
-            ));
+        for (key, count) in seen_keys {
+            if count > 1 {
+                warnings.push(format!(
+                    "Page \"{}\" (#{si}) reuses shortcut \"{key}\" {count} times",
+                    page.name
+                ));
+            }
         }
+    }
+
+    if cfg.sets.is_empty() {
+        warnings.push("HUD must contain at least one page".into());
     }
 
     // Check for empty action names
@@ -7101,7 +6925,7 @@ fn validate_config(cfg: Res<QuickActionConfig>, mut validation: ResMut<ConfigVal
                 SetEntry::Wheel(w) => {
                     if w.name.trim().is_empty() {
                         warnings.push(format!(
-                            "Wheel #{ei} in set \"{}\" has an empty name",
+                            "Radial menu #{ei} in page \"{}\" has an empty name",
                             set.name
                         ));
                     }
@@ -7109,7 +6933,7 @@ fn validate_config(cfg: Res<QuickActionConfig>, mut validation: ResMut<ConfigVal
                 SetEntry::WheelSet(ws) => {
                     if ws.name.trim().is_empty() {
                         warnings.push(format!(
-                            "Wheel set #{ei} in set \"{}\" has an empty name",
+                            "Radial menu set #{ei} in page \"{}\" has an empty name",
                             set.name
                         ));
                     }

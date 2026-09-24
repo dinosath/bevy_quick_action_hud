@@ -47,6 +47,21 @@ procedural algorithms, pair with `game-ai` / `procedural-gen`.
    gate systems with `run_if`. Group related setup into `Plugin`s. Build with
    `cargo run` and read the panics — Bevy reports conflicting queries at startup.
 
+## Project architecture defaults
+
+- Organize new code by feature ownership. A feature owns its components,
+  resources, messages, observers, systems, scenes and plugin registration.
+- Keep components small and limited to entity state. Put global state in
+  resources and transient communication in messages/events or observers.
+- Prefer reactive workflows and change detection over scanning and rewriting
+  every entity each frame. A system should have one primary responsibility.
+- For Bevy UI/editor work, use BSN scene composition first and Feathers widgets
+  before implementing custom controls. Keep procedural geometry and runtime
+  input/hit testing in ECS systems; do not mechanically wrap imperative spawn
+  trees in `bsn!`.
+- Document any custom widget, broad resource, explicit system chain or
+  compatibility facade that remains for a concrete reason.
+
 ## Patterns
 
 ### 1. Cargo.toml + minimal App

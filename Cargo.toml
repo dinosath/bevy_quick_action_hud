@@ -21,7 +21,6 @@ bevy = { version = "0.19", default-features = true, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 ron = "0.12"
-bevy_tweening = "0.16"
 leafwing-input-manager = "0.21"
 bevy_feathers = "0.19"
 
@@ -50,18 +49,8 @@ hud = []
 editor = ["hud"]
 
 [[example]]
-name = "gamepad"
-path = "examples/gamepad.rs"
-required-features = []
-
-[[example]]
-name = "hello"
-path = "examples/hello.rs"
-required-features = ["editor"]
-
-[[example]]
-name = "editor"
-path = "examples/editor.rs"
+name = "simple"
+path = "examples/simple.rs"
 required-features = ["editor"]
 
 [lib]

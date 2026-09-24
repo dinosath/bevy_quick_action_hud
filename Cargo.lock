@@ -1295,7 +1295,6 @@ version = "0.2.0"
 dependencies = [
  "bevy",
  "bevy_feathers",
- "bevy_tweening",
  "js-sys",
  "leafwing-input-manager",
  "ron",
@@ -1630,16 +1629,6 @@ dependencies = [
  "bevy_utils",
  "derive_more",
  "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "bevy_tweening"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "728344b4f0cbba16b15daad81baff035cab7e2e78908d6284a30626dd08323ad"
-dependencies = [
- "bevy",
  "thiserror 2.0.18",
 ]
 

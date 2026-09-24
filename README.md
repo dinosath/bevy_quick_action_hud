@@ -1,6 +1,6 @@
 # bevy_quick_action_hud
 
-A headless, gamepad-driven radial (wheel) menu library for [Bevy](https://bevyengine.org/) 0.19.
+A headless, gamepad-driven quick action HUD and radial menu library for [Bevy](https://bevyengine.org/) 0.19.
 
 **Headless** means the library handles all logic — input, hover detection, casting modes, time scaling, slot cycling — and emits events your app reacts to for rendering. You own the visuals.
 
@@ -11,16 +11,52 @@ A headless, gamepad-driven radial (wheel) menu library for [Bevy](https://bevyen
 | Feature | Description |
 |---|---|
 | **Casting modes** | `Vanilla` (button press), `ReleaseToUse` (stick release), `HoldToActivate` (dwell), `Direct` (instant on hover) |
-| **Time scaling** | `Normal`, `Slow(scale)`, or `Pause` virtual time while the wheel is open |
+| **Time scaling** | `Normal`, `Slow(scale)`, or `Pause` virtual time while the radial menu is open |
 | **Multi-item slots** | Each slice holds a `Vec<ActionItem>`; player cycles with thumbstick buttons |
 | **Action data model** | `ActionItem` enum (`Weapon`, `Spell`, `Consumable`, `Shout`, `Custom`) + `ActionBehavior` trait |
-| **Wheel sets** | Cycle between multiple wheels with shoulder buttons |
-| **Hold-to-activate** | Per-wheel dwell timer with progress events for UI feedback |
+| **Radial menu sets** | A radial menu set contains one or more radial menus and can define unique next/previous menu shortcuts per page |
+| **Hold-to-activate** | Per-radial-menu dwell timer with progress events for UI feedback |
 | **Low-count warnings** | Emit once when a slice's count drops below a threshold |
 | **Edit mode** | D-pad reorder slices at runtime |
 | **Lifecycle events** | `WheelOpened` / `WheelClosed` on hover transitions |
-| **In-app HUD editor** | Sidebar UI for authoring action sets, wheels, and quick-action buttons |
+| **In-app HUD editor** | Sidebar UI for authoring pages, radial menu sets, radial menus, sectors, and buttons |
 | **Conflict-free config** | Enum variants make invalid combinations impossible |
+
+## HUD terminology and data model
+
+The canonical product terms are **page**, **radial menu set**, **radial menu**,
+**sector**, and **button**. The shorter names **wheelset**, **wheel**,
+**segment**, and **slice** remain accepted as informal aliases in code and
+documentation for compatibility.
+
+The HUD document always contains at least one page. Each page has a name and
+may have an optional icon in a host application. A page may contain zero or
+more radial menu sets and zero or more buttons. A page may also contain HUD
+switch controls for changing pages.
+
+Each radial menu set contains one or more radial menus. Its menus share the
+set's presentation settings (position, rotation, size, style, and related
+layout), while each menu owns its sector list. A set may define shortcuts for
+switching to the previous or next menu. Those shortcuts must be unique within
+their page; shortcuts on different pages may be reused.
+
+Each radial menu contains sectors. A sector and a button share the following
+authored fields: name, optional description, optional icon, input binding,
+action mapping, hold-action enabled, hold-action mapping, and exit-HUD-on-
+select.
+
+The public compatibility names currently map as follows:
+
+| Canonical term | Existing Rust type | Alias |
+|---|---|---|
+| Page | `ActionSet` | `HudPage` |
+| Radial menu set / wheelset | `RadialMenuSet` | `WheelSetData` |
+| Radial menu / wheel | `RadialMenu` | `WheelData` |
+| Sector / segment / slice | `Sector` | `WheelSlotData` |
+| Button | `QuickAction` | `HudButton` |
+
+Original serialized names remain supported so existing RON files continue to
+load. New documentation and UI copy should use the canonical terms.
 
 ---
 
@@ -87,8 +123,8 @@ fn main() {
 
 fn spawn_wheel(mut commands: Commands) {
     commands.spawn((
-        WheelData {
-            slots: vec![WheelSlotData::named("Slot 1"); 8],
+        RadialMenu {
+            slots: vec![Sector::named("Slot 1"); 8],
             outer_radius: 160.0,
             inner_radius: 45.0,
             ..default()
@@ -108,37 +144,31 @@ fn on_select(mut events: MessageReader<WheelMenuSelected>) {
 }
 ```
 
-### FPS-style HUD (with gamepad)
+### Simple HUD host (with gamepad)
 
 ```sh
-cargo run --example fps --features editor
-```
-
-### Editor-Only Example
-
-```sh
-cargo run --example editor --features editor
-```
-
-### Gamepad-Only Example
-
-```sh
-cargo run --example gamepad
+cargo run --example simple --features editor
 ```
 
 ### WASM Build
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo build --release --example fps --features editor --target wasm32-unknown-unknown
+cargo build --release --example simple --features editor --target wasm32-unknown-unknown
 wasm-bindgen --out-dir dist --out-name wasm_example --target web \
-  target/wasm32-unknown-unknown/release/examples/fps.wasm
+  target/wasm32-unknown-unknown/release/examples/simple.wasm
 cp index.html dist/index.html
 ```
 
 ---
 
 ## Plugin Architecture
+
+The maintained architecture and migration decisions are documented in:
+
+- [Architecture audit](docs/architecture-audit.md)
+- [BSN/Feathers migration report](docs/bsn-feathers-migration-report.md)
+- [Development guidelines](docs/development-guidelines.md)
 
 The library provides a single `QuickActionHudPlugin` with three modes:
 
@@ -163,14 +193,14 @@ app.add_plugins(QuickActionHudPlugin::with_editor());
 
 ## Core Types
 
-### `WheelData`
+### `RadialMenu`
 
 The shape descriptor — attach to any entity.
 
 ```rust
-WheelData {
-    name: "Wheel".into(),
-    slots: vec![WheelSlotData::named("Slot 1"); 8],
+RadialMenu {
+    name: "Combat radial menu".into(),
+    slots: vec![Sector::named("Sector 1"); 8],
     outer_radius: 160.0,
     inner_radius: 45.0,
     deadzone: 0.25,
@@ -215,7 +245,7 @@ CastingMode::HoldToActivate { duration: 0.8} // dwell for N seconds
 CastingMode::Direct                          // fire immediately on hover
 ```
 
-### `WheelSlot` + `ActionItem`
+### `Sector` + `ActionItem`
 
 ```rust
 commands.spawn((
@@ -265,7 +295,7 @@ QuickActionConfig(
             name: "Combat",
             entries: [
                 WheelSet(WheelSetData(
-                    name: "Wheel Set",
+                    name: "Combat radial menu set",
                     wheels: [WheelData(name: "Combat Wheel", ...)],
                 )),
                 Action(QuickAction(
@@ -288,7 +318,7 @@ The library ships `bsn!`-authored scene builders for `bevy_ui`:
 ```rust
 // Full-screen centered overlay
 commands.spawn_scene(wheel_overlay())
-    .insert((WheelData::default(), WheelState::default(), WheelMenuConfig::default()));
+    .insert((RadialMenu::default(), WheelState::default(), WheelMenuConfig::default()));
 
 // Zero-size hub at screen center
 let hub = commands.spawn_scene(wheel_hub()).id();
@@ -332,10 +362,8 @@ cargo test --test wasm_deploy
 ## License
 
 MIT
-cargo run --example gamepad
-
-# FPS weapon / ability wheel (slow-time, hold-to-activate, ammo tracking)
-cargo run --example fps
+# Minimal HUD host (Q/L2 opens the editor-enabled HUD)
+cargo run --example simple --features editor
 ```
 
 ---
@@ -365,7 +393,7 @@ Licensed under either of [Apache 2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT) at y
 
 ## WebAssembly — GitHub Pages deployment
 
-The repository includes everything needed to build the **FPS demo** (`examples/fps.rs`) for WebAssembly and publish it to **GitHub Pages** automatically.
+The repository includes everything needed to build the **Simple HUD demo** (`examples/simple.rs`) for WebAssembly and publish it to **GitHub Pages** automatically.
 
 ### Try it in the browser
 
@@ -395,14 +423,14 @@ This project uses the same approach as the official Bevy examples: `cargo build`
 
 ```sh
 # 1. Build the example for the WASM target
-cargo build --release --example fps --target wasm32-unknown-unknown
+cargo build --release --example simple --features editor --target wasm32-unknown-unknown
 
 # 2. Generate JS bindings
 wasm-bindgen \
   --out-dir dist \
   --out-name wasm_example \
   --target web \
-  target/wasm32-unknown-unknown/release/examples/fps.wasm
+  target/wasm32-unknown-unknown/release/examples/simple.wasm
 
 # 3. Copy the HTML entry point
 cp index.html dist/index.html
@@ -428,7 +456,7 @@ cd /tmp/test-site && python3 -m http.server 8080
 # Then visit http://localhost:8080/bevy_quick_action_hud/
 ```
 
-> **Note:** The FPS example uses gamepad input. Make sure your browser supports the [Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) and connect a controller before pressing L2 to open the wheel.
+> **Note:** The Simple HUD host uses gamepad input. Make sure your browser supports the [Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API) and connect a controller before pressing L2 to open the HUD.
 
 ### How deployment works
 
@@ -436,7 +464,7 @@ A **GitHub Actions workflow** (`.github/workflows/deploy.yml`) runs on every pus
 
 1. Checks out the repository
 2. Installs the stable Rust toolchain with the `wasm32-unknown-unknown` target
-3. Builds the `fps` example with `cargo build --release --target wasm32-unknown-unknown`
+3. Builds the `simple` example with `cargo build --release --features editor --target wasm32-unknown-unknown`
 4. Generates JavaScript bindings with `wasm-bindgen` (using the version from `Cargo.lock`)
 5. Copies `index.html` into the output directory
 6. Runs the deployment smoke test to verify all files return HTTP 200
@@ -461,6 +489,6 @@ After the first workflow run succeeds, you must configure the Pages source:
 1. Push to `main` (or trigger a manual workflow run from the Actions tab)
 2. Wait for the workflow to complete (approx. 5–10 minutes for the first build)
 3. Visit `https://<owner>.github.io/bevy_quick_action_hud/`
-4. The Bevy application should load and render the FPS demo
+4. The Bevy application should load and render the Simple HUD demo
 5. Open the browser's developer console — there should be no JavaScript or WASM loading errors
 6. All embedded assets (shaders, icons) load without 404 errors

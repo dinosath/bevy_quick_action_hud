@@ -1,6 +1,7 @@
 //! Minimal HUD host used while developing the editor.
 
 use bevy::prelude::*;
+use bevy::scene::prelude::{bsn, Scene};
 use bevy_quick_action_hud::{
     HudSegmentSelected, QuickActionConfig, QuickActionHudPlugin, SetEntry, WheelHudButton,
     WheelHudState,
@@ -191,31 +192,30 @@ fn setup(mut commands: Commands) {
         Transform::from_xyz(0.0, 0.0, -1.0),
     ));
 
-    let panel = commands
-        .spawn((
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(16.0),
-                bottom: Val::Px(16.0),
-                width: Val::Px(500.0),
-                min_height: Val::Px(150.0),
-                padding: UiRect::all(Val::Px(10.0)),
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.03, 0.03, 0.03, 0.92)),
-            BorderColor::all(Color::srgb(0.2, 0.2, 0.2)),
-        ))
-        .id();
+    // Static hierarchy is declarative; only the log text is updated at runtime.
+    let panel = commands.spawn_scene(input_log_panel()).id();
     let text = commands
-        .spawn((
-            InputLogText,
-            Text::new("Press Q or L2 to open the HUD"),
-            TextFont {
-                font_size: FontSize::Px(13.0),
-                ..default()
-            },
-            TextColor(Color::srgb(0.75, 0.75, 0.75)),
-        ))
+        .spawn_scene(bsn! {
+            Text("Press Q or L2 to open the HUD")
+            TextFont { font_size: {FontSize::Px(13.0)} }
+            TextColor(Color::srgb(0.75, 0.75, 0.75))
+        })
+        .insert(InputLogText)
         .id();
     commands.entity(panel).add_child(text);
+}
+
+fn input_log_panel() -> impl Scene {
+    bsn! {
+        Node {
+            position_type: PositionType::Absolute,
+            left: {Val::Px(16.0)},
+            bottom: {Val::Px(16.0)},
+            width: {Val::Px(500.0)},
+            min_height: {Val::Px(150.0)},
+            padding: {UiRect::all(Val::Px(10.0))},
+        }
+        BackgroundColor(Color::srgba(0.03, 0.03, 0.03, 0.92))
+        BorderColor::all(Color::srgb(0.2, 0.2, 0.2))
+    }
 }

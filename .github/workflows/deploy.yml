@@ -6,7 +6,7 @@
 #   - push to "main" branch
 #   - manual dispatch (via Actions tab)
 #
-# Builds the fps example with cargo + wasm-bindgen for wasm32-unknown-unknown
+# Builds the simple HUD example with cargo + wasm-bindgen for wasm32-unknown-unknown
 # and publishes the output to GitHub Pages using the official actions.
 #
 # The site will be available at:
@@ -80,7 +80,8 @@ jobs:
         run: |
           cargo build \
             --release \
-            --example fps \
+            --example simple \
+            --features editor \
             --target wasm32-unknown-unknown
 
       - name: Generate JS bindings with wasm-bindgen
@@ -89,7 +90,7 @@ jobs:
             --out-dir dist \
             --out-name wasm_example \
             --target web \
-            target/wasm32-unknown-unknown/release/examples/fps.wasm
+            target/wasm32-unknown-unknown/release/examples/simple.wasm
 
       - name: Copy index.html to dist
         run: cp index.html dist/index.html
