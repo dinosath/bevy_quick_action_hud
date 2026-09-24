@@ -43,7 +43,7 @@ fn focused_name<'a>(cfg: &'a mut QuickActionConfig, ui: &EditorUiState) -> Optio
 
 // ─── keyboard input ───────────────────────────────────────────────────────────────
 
-/// Returns the ordinal position of `entry` among Wheel/RadialMenuSetState entries in the set.
+/// Returns the ordinal position of `entry` among radial-menu-set entries.
 /// Used to sync `hud.active_wheel_entry` when the editor selects a wheel.
 pub(super) fn wheel_entry_idx(cfg: &QuickActionConfig, set: usize, entry: usize) -> usize {
     let Some(s) = cfg.sets.get(set) else {
@@ -51,7 +51,7 @@ pub(super) fn wheel_entry_idx(cfg: &QuickActionConfig, set: usize, entry: usize)
     };
     s.entries[..entry.min(s.entries.len())]
         .iter()
-        .filter(|e| matches!(e, SetEntry::Wheel(_) | SetEntry::RadialMenuSet(_)))
+        .filter(|e| matches!(e, SetEntry::RadialMenuSet(_)))
         .count()
 }
 
@@ -267,7 +267,7 @@ pub(super) fn editor_capture_gamepad(
                         cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
                     {
                         ws.stick_binding = binding.into();
-                        for wheel in &mut ws.wheels {
+                        for wheel in &mut ws.radial_menus {
                             wheel.stick_binding = ws.stick_binding.clone();
                         }
                     }

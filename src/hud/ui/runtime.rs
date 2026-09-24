@@ -1,3 +1,4 @@
+use crate::radial_menu::components::sector_index_at_angle;
 use crate::*;
 use bevy::log::debug;
 use bevy::prelude::*;
@@ -31,11 +32,11 @@ pub(crate) fn hud_stick_nav(
     let Some(set) = cfg.sets.get(hud.active_set) else {
         return;
     };
-    let mut found: Option<(usize, Option<usize>, usize, String)> = None;
+    let mut found: Option<(usize, Option<usize>, &RadialMenu, &str)> = None;
     let target = hud.active_wheel_entry;
     let mut wcount = 0usize;
     for (ei, entry) in set.entries.iter().enumerate() {
-        let is_wheel = matches!(entry, SetEntry::Wheel(_) | SetEntry::RadialMenuSet(_));
+        let is_wheel = matches!(entry, SetEntry::RadialMenuSet(_));
         if !is_wheel {
             continue;
         }
@@ -43,31 +44,20 @@ pub(crate) fn hud_stick_nav(
             wcount += 1;
             continue;
         }
-        match entry {
-            SetEntry::Wheel(w) => {
-                found = Some((ei, None, w.slots.len(), w.stick_binding.clone()));
+        if let SetEntry::RadialMenuSet(ws) = entry {
+            let wheel_index = hud
+                .active_wheel_index
+                .min(ws.radial_menu_count().saturating_sub(1));
+            if let Some(w) = ws.radial_menu(wheel_index) {
+                found = Some((ei, Some(wheel_index), w, &ws.stick_binding));
             }
-            SetEntry::RadialMenuSet(ws) => {
-                let wheel_index = hud
-                    .active_wheel_index
-                    .min(ws.wheels.len().saturating_sub(1));
-                if let Some(w) = ws.wheels.get(wheel_index) {
-                    found = Some((
-                        ei,
-                        Some(wheel_index),
-                        w.slots.len(),
-                        ws.stick_binding.clone(),
-                    ));
-                }
-            }
-            _ => {}
         }
         break;
     }
-    let Some((entry_idx, wheel_idx, n_slots, stick_binding)) = found else {
+    let Some((entry_idx, wheel_idx, menu, stick_binding)) = found else {
         return;
     };
-    if n_slots == 0 {
+    if menu.slots.is_empty() {
         return;
     }
 
@@ -82,21 +72,21 @@ pub(crate) fn hud_stick_nav(
         }
     }
 
-    const DEADZONE: f32 = 0.2;
     let prev = hud.highlighted;
 
-    let new_highlight = if stick.length() < DEADZONE {
+    let new_highlight = if stick.length() < menu.deadzone {
         if hud.editor_open {
             prev
         } else {
             None
         }
     } else {
-        // Same angle mapping as RadialMenu::arc_offset default (FRAC_PI_6).
-        let a = stick.y.atan2(stick.x);
-        let rel = (a - std::f32::consts::FRAC_PI_6).rem_euclid(std::f32::consts::TAU);
-        let idx = ((rel / std::f32::consts::TAU) * n_slots as f32).floor() as usize;
-        Some((hud.active_set, entry_idx, wheel_idx, idx.min(n_slots - 1)))
+        // The rendered menu uses a clockwise UI rotation. In the menu's
+        // Cartesian input space that is a positive angular offset, so resolve
+        // the stick direction in the inverse local rotation.
+        let local_angle = stick.y.atan2(stick.x) - menu.rotation.to_radians();
+        sector_index_at_angle(menu, local_angle)
+            .map(|slot| (hud.active_set, entry_idx, wheel_idx, slot))
     };
 
     if prev != new_highlight {
@@ -113,9 +103,8 @@ pub(crate) fn hud_stick_nav(
                     .get(s)
                     .and_then(|set| set.entries.get(e))
                     .and_then(|entry| match (entry, w) {
-                        (SetEntry::Wheel(wd), None) => wd.slots.get(slot),
                         (SetEntry::RadialMenuSet(ws), Some(wi)) => {
-                            ws.wheels.get(wi).and_then(|wd| wd.slots.get(slot))
+                            ws.radial_menu(wi).and_then(|wd| wd.slots.get(slot))
                         }
                         _ => None,
                     })
@@ -164,7 +153,6 @@ pub(crate) fn rebuild_hud(
     icon_set: Res<GamepadIconSet>,
     old_hud: Query<Entity, With<WheelHudRoot>>,
     children: Query<&Children>,
-    mut wedge_materials: ResMut<Assets<WedgeMaterial>>,
 ) {
     if !hud.dirty {
         return;
@@ -198,14 +186,7 @@ pub(crate) fn rebuild_hud(
         hud.active_set = cfg.sets.len() - 1;
     }
 
-    build_hud_canvas(
-        &mut commands,
-        &cfg,
-        &hud,
-        &asset_server,
-        *icon_set,
-        &mut wedge_materials,
-    );
+    build_hud_canvas(&mut commands, &cfg, &hud, &asset_server, *icon_set);
 }
 
 fn despawn_hud_tree(commands: &mut Commands, entity: Entity, children: &Query<&Children>) {

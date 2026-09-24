@@ -18,19 +18,13 @@ fn active_edit_wheel(
     let mut wheel_index = 0;
     for (entry, value) in set.entries.iter().enumerate() {
         match value {
-            SetEntry::Wheel(w) => {
-                if wheel_index == hud.active_wheel_entry {
-                    return Some((hud.active_set, entry, None, w.slots.len()));
-                }
-                wheel_index += 1;
-            }
             SetEntry::RadialMenuSet(ws) => {
                 if wheel_index == hud.active_wheel_entry {
                     let active = hud
                         .active_wheel_index
-                        .min(ws.wheels.len().saturating_sub(1));
+                        .min(ws.radial_menus.len().saturating_sub(1));
                     return ws
-                        .wheels
+                        .radial_menus
                         .get(active)
                         .map(|w| (hud.active_set, entry, Some(active), w.slots.len()));
                 }
@@ -215,7 +209,7 @@ pub(super) fn editor_gamepad_nav(
                 }
                 2 => {
                     if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
-                        if w.slots.len() > 1 && slot < w.slots.len() {
+                        if w.slots.len() > MIN_SECTORS && slot < w.slots.len() {
                             w.slots.remove(slot);
                             let next_slot = slot.min(w.slots.len() - 1);
                             ui.selection = Selection::Segment {
@@ -445,7 +439,7 @@ pub(super) fn editor_keyboard_radial_nav(
         }
         2 => {
             if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
-                if w.slots.len() > 1 && slot < w.slots.len() {
+                if w.slots.len() > MIN_SECTORS && slot < w.slots.len() {
                     w.slots.remove(slot);
                     let next_slot = slot.min(w.slots.len() - 1);
                     ui.selection = Selection::Segment {

@@ -23,9 +23,8 @@ A headless, gamepad-driven quick action HUD and radial menu library for [Bevy](h
 ## HUD terminology and data model
 
 The canonical product terms are **page**, **radial menu set**, **radial menu**,
-**sector**, and **button**. The shorter names **wheelset**, **wheel**,
-**segment**, and **slice** remain accepted as informal aliases in code and
-documentation for compatibility.
+**sector**, and **button**. Use these terms in new code, configuration, UI, and
+documentation.
 
 The HUD document always contains at least one page. Each page has a name and
 may have an optional icon in a host application. A page may contain zero or
@@ -39,9 +38,9 @@ switching to the previous or next menu. Those shortcuts must be unique within
 their page; shortcuts on different pages may be reused.
 
 Each radial menu contains sectors. A sector and a button share the following
-authored fields: name, optional description, optional icon, input binding,
-action mapping, hold-action enabled, hold-action mapping, and exit-HUD-on-
-select.
+authored fields: name, optional description, optional icon, action mapping,
+hold-action enabled, hold-action mapping, and exit-HUD-on-select. Sector input
+bindings are not part of the model; the radial menu set owns navigation input.
 
 The authored configuration uses these canonical Rust types:
 
@@ -147,6 +146,16 @@ fn on_select(mut events: MessageReader<WheelMenuSelected>) {
 cargo run --example simple --features editor
 ```
 
+### Native BSN radial-menu probe
+
+The visual probe renders the default centered radial menu with its first sector
+highlighted in editor preview mode. It captures
+`/private/tmp/radial-menu-default.png` for comparison with `image.png`.
+
+```sh
+cargo run --example radial_menu_probe
+```
+
 ### WASM Build
 
 ```sh
@@ -204,7 +213,6 @@ RadialMenu {
     gap: 0.04,
     arc_span: TAU,
     arc_offset: FRAC_PI_6,
-    segment_shape: SegmentShape::Pie,
     show_labels: true,
     show_icon: true,
     ..default()
@@ -269,7 +277,7 @@ QuickActionConfig(
             entries: [
                 RadialMenuSet(RadialMenuSet(
                     name: "Combat radial menu set",
-                    wheels: [RadialMenu(name: "Combat radial menu", ...)],
+                    radial_menus: [RadialMenu(name: "Combat radial menu", ...)],
                 )),
                 Action(QuickAction(
                     name: "Interact",
@@ -284,26 +292,13 @@ QuickActionConfig(
 
 ---
 
-## UI Helpers (bsn!)
+## UI composition (bsn!)
 
-The library ships `bsn!`-authored scene fragments for the radial-menu
-presentation. The HUD owns the full-screen root; these helpers are intended to
-be spawned as children of the runtime wheel hub:
-
-```rust
-// Zero-size positioning origin
-let hub = commands.spawn_scene(wheel_hub()).id();
-
-// Runtime-generated radial-menu visuals use BSN fragments
-commands.spawn_scene(wheel_bg_disc(radius, bg_color));
-commands.spawn_scene(wheel_outer_ring(radius, ring_color, width));
-commands.spawn_scene(wheel_center_ring(inner_radius, hub_color, ring_color, width));
-commands.spawn_scene(wheel_slice_label("Action".into(), 18.0, text_color));
-```
-
-Sector geometry and hit testing remain runtime ECS work because their layout is
-derived from the current menu data and input state. The reusable BSN fragments
-are defined alongside the radial-menu components in `radial_menu/components.rs`.
+The radial-menu component module declares the crate-private reusable BSN
+fragments for the hub, rings, and labels. The HUD presentation module composes
+those fragments with runtime values. Sector geometry, procedural materials,
+and hit testing remain runtime ECS work because their layout is derived from
+current menu data and input state.
 
 ---
 
@@ -463,4 +458,4 @@ After the first workflow run succeeds, you must configure the Pages source:
 3. Visit `https://<owner>.github.io/bevy_quick_action_hud/`
 4. The Bevy application should load and render the Simple HUD demo
 5. Open the browser's developer console — there should be no JavaScript or WASM loading errors
-6. All embedded assets (shaders, icons) load without 404 errors
+6. All embedded assets (icons) load without 404 errors

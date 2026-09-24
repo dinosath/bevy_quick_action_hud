@@ -23,8 +23,7 @@ pub use radial_menu::messages::*;
 pub use radial_menu::{
     check_low_counts, emit_lifecycle, emit_selection, resolve_wheel_input, slice_angles,
     slice_center, update_active_slot_context, update_edit_mode, update_wheel_hold,
-    update_wheel_hover, wheel_bg_disc, wheel_center_ring, wheel_hub, wheel_outer_ring,
-    wheel_slice_label,
+    update_wheel_hover,
 };
 pub use radial_menu::{
     resolve_input, ActiveSlotContext, CastingMode, GlobalBindings, InputAction, RadialMenuAudio,
@@ -33,7 +32,7 @@ pub use radial_menu::{
     SectorEntity, WheelAction, WheelInputOverride, WheelSliceLink,
 };
 pub use radial_menu::{
-    RadialMenu, RadialMenuGeometry, Sector, SegmentShape, WheelTheme, DEFAULT_STICK_BINDING,
+    RadialMenu, RadialMenuGeometry, Sector, WheelTheme, DEFAULT_STICK_BINDING, MIN_SECTORS,
 };
 pub use radial_menu_set::messages::*;
 use radial_menu_set::update_wheel_set;
@@ -108,7 +107,6 @@ impl Plugin for QuickActionHudPlugin {
     /// Registers core messages, systems, assets, and optional HUD/editor systems.
     fn build(&self, app: &mut App) {
         scheduling::configure(app);
-        embedded_asset!(app, "embedded/shaders/wedge.wgsl");
         embedded_asset!(app, "embedded/icons/editor/cil-aperture.png");
         embedded_asset!(app, "embedded/icons/editor/cil-applications-settings.png");
         embedded_asset!(app, "embedded/icons/editor/cil-camera-control.png");
@@ -232,8 +230,7 @@ impl Plugin for QuickActionHudPlugin {
             );
 
         if self.hud {
-            app.add_plugins(UiMaterialPlugin::<WedgeMaterial>::default())
-                .init_resource::<QuickActionConfig>()
+            app.init_resource::<QuickActionConfig>()
                 .init_resource::<WheelHudState>()
                 .init_resource::<GamepadIconSet>()
                 .add_message::<HudSegmentSelected>()
@@ -313,8 +310,7 @@ mod tests {
             .iter()
             .flat_map(|set| set.entries.iter())
             .find_map(|entry| match entry {
-                SetEntry::Wheel(wheel) => Some(wheel),
-                SetEntry::RadialMenuSet(set) => set.wheels.first(),
+                SetEntry::RadialMenuSet(set) => set.radial_menus.first(),
                 _ => None,
             })
             .expect("existing configuration contains a radial menu");
@@ -492,9 +488,9 @@ mod tests {
     }
 
     #[test]
-    fn wheel_data_default_has_one_slot() {
+    fn radial_menu_default_has_four_reference_sectors() {
         let wd = RadialMenu::default();
-        assert_eq!(wd.slots.len(), 1);
+        assert_eq!(wd.slots.len(), 4);
     }
 
     #[test]
@@ -505,9 +501,9 @@ mod tests {
     }
 
     #[test]
-    fn wheel_data_new_min_one_slot() {
+    fn radial_menu_new_enforces_minimum_sectors() {
         let wd = RadialMenu::new("Min", 0);
-        assert_eq!(wd.slots.len(), 1);
+        assert_eq!(wd.slots.len(), MIN_SECTORS);
     }
 
     #[test]
@@ -545,20 +541,6 @@ mod tests {
     fn wheel_theme_cycle() {
         assert_eq!(WheelTheme::Dark.next(), WheelTheme::Light);
         assert_eq!(WheelTheme::Light.next(), WheelTheme::Dark);
-    }
-
-    #[test]
-    fn segment_shape_cycle() {
-        let shapes = [
-            SegmentShape::Rounded,
-            SegmentShape::Square,
-            SegmentShape::Circle,
-            SegmentShape::Wedge,
-            SegmentShape::Pie,
-        ];
-        for i in 0..shapes.len() {
-            assert_eq!(shapes[i].next(), shapes[(i + 1) % shapes.len()]);
-        }
     }
 
     #[test]
@@ -629,28 +611,27 @@ mod tests {
     }
 
     #[test]
-    fn count_wheel_entries_empty_set() {
+    fn count_radial_menu_sets_empty_page() {
         let set = ActionSet {
             name: "Empty".into(),
             entries: vec![],
             ..default()
         };
-        assert_eq!(count_wheel_entries(&set), 0);
+        assert_eq!(count_radial_menu_sets(&set), 0);
     }
 
     #[test]
-    fn count_wheel_entries_mixed() {
+    fn count_radial_menu_sets_on_page() {
         let set = ActionSet {
             name: "Mixed".into(),
             entries: vec![
-                SetEntry::Wheel(RadialMenu::default()),
                 SetEntry::Action(QuickAction::default()),
                 SetEntry::RadialMenuSet(RadialMenuSet::default()),
                 SetEntry::Action(QuickAction::default()),
             ],
             ..default()
         };
-        assert_eq!(count_wheel_entries(&set), 2);
+        assert_eq!(count_radial_menu_sets(&set), 1);
     }
 
     #[test]
@@ -718,10 +699,13 @@ mod tests {
 
     #[test]
     fn set_entry_wheel_creation() {
-        let entry = SetEntry::Wheel(RadialMenu::new("Test", 3));
+        let entry = SetEntry::RadialMenuSet(RadialMenuSet {
+            name: "Test".into(),
+            ..default()
+        });
         match entry {
-            SetEntry::Wheel(w) => assert_eq!(w.name, "Test"),
-            _ => panic!("expected Wheel"),
+            SetEntry::RadialMenuSet(set) => assert_eq!(set.name, "Test"),
+            _ => panic!("expected RadialMenuSet"),
         }
     }
 
@@ -741,7 +725,7 @@ mod tests {
     fn wheel_set_data_default() {
         let data = RadialMenuSet::default();
         assert_eq!(data.name, "Radial menu set");
-        assert_eq!(data.wheels.len(), 1);
+        assert_eq!(data.radial_menus.len(), 1);
         assert_eq!(data.min_wheels, 1);
         assert_eq!(data.max_wheels, 8);
     }
@@ -749,40 +733,53 @@ mod tests {
     #[test]
     fn normalize_wheelset_applies_shared_visuals_and_minimum() {
         let mut ws = RadialMenuSet {
-            wheels: vec![RadialMenu::new("First", 3)],
+            radial_menus: vec![RadialMenu::new("First", 3)],
             min_wheels: 2,
             max_wheels: 4,
             ..default()
         };
-        ws.wheels[0].offset_x = 42.0;
-        ws.wheels[0].rotation = 0.75;
-        ws.wheels[0].outer_radius = 123.0;
+        ws.radial_menus[0].offset_x = 42.0;
+        ws.radial_menus[0].rotation = 0.75;
+        ws.radial_menus[0].outer_radius = 123.0;
         ws.visuals = None;
 
         normalize_wheelset(&mut ws);
 
-        assert_eq!(ws.wheels.len(), 2);
-        assert_eq!(ws.wheels[1].offset_x, 42.0);
-        assert_eq!(ws.wheels[1].rotation, 0.75);
-        assert_eq!(ws.wheels[1].outer_radius, 123.0);
+        assert_eq!(ws.radial_menus.len(), 2);
+        assert_eq!(ws.radial_menus[1].offset_x, 42.0);
+        assert_eq!(ws.radial_menus[1].rotation, 0.75);
+        assert_eq!(ws.radial_menus[1].outer_radius, 123.0);
         assert!(ws.visuals.is_some());
+    }
+
+    #[test]
+    fn normalize_wheelset_repairs_menu_sector_minimum() {
+        let mut ws = RadialMenuSet {
+            radial_menus: vec![RadialMenu::default()],
+            ..default()
+        };
+        ws.radial_menus[0].slots.truncate(1);
+
+        normalize_wheelset(&mut ws);
+
+        assert_eq!(ws.radial_menus[0].slots.len(), MIN_SECTORS);
     }
 
     #[test]
     fn wheelset_visual_sync_preserves_sector_data() {
         let mut ws = RadialMenuSet {
-            wheels: vec![RadialMenu::new("First", 2), RadialMenu::new("Second", 4)],
+            radial_menus: vec![RadialMenu::new("First", 2), RadialMenu::new("Second", 4)],
             ..default()
         };
-        ws.wheels[0].offset_y = -18.0;
-        ws.wheels[0].rotation = 1.25;
+        ws.radial_menus[0].offset_y = -18.0;
+        ws.radial_menus[0].rotation = 1.25;
         ws.visuals = None;
         normalize_wheelset(&mut ws);
 
-        assert_eq!(ws.wheels[0].slots.len(), 2);
-        assert_eq!(ws.wheels[1].slots.len(), 4);
-        assert_eq!(ws.wheels[1].offset_y, -18.0);
-        assert_eq!(ws.wheels[1].rotation, 1.25);
+        assert_eq!(ws.radial_menus[0].slots.len(), 2);
+        assert_eq!(ws.radial_menus[1].slots.len(), 4);
+        assert_eq!(ws.radial_menus[1].offset_y, -18.0);
+        assert_eq!(ws.radial_menus[1].rotation, 1.25);
     }
 
     #[test]
@@ -791,21 +788,6 @@ mod tests {
         assert_eq!(set.name, "Set");
         assert_eq!(set.opacity, 1.0);
         assert!(set.entries.is_empty());
-    }
-
-    #[test]
-    fn wedge_params_default_values() {
-        let params = WedgeParams {
-            color: Vec4::new(1.0, 0.0, 0.0, 0.5),
-            border_color: Vec4::new(1.0, 0.5, 0.5, 1.0),
-            inner_r: 40.0,
-            outer_r: 140.0,
-            angle_start: 0.0,
-            angle_end: std::f32::consts::FRAC_PI_2,
-            edge_width: 1.0,
-        };
-        assert!((params.inner_r - 40.0).abs() < f32::EPSILON);
-        assert!((params.outer_r - 140.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -831,12 +813,6 @@ mod tests {
     fn position_mode_labels() {
         assert_eq!(PositionMode::Relative.label(), "Relative");
         assert_eq!(PositionMode::Absolute.label(), "Absolute");
-    }
-
-    #[test]
-    fn segment_shape_labels() {
-        assert_eq!(SegmentShape::Rounded.label(), "Rounded");
-        assert_eq!(SegmentShape::Pie.label(), "Pie");
     }
 
     #[test]
@@ -872,6 +848,6 @@ mod tests {
 
     #[test]
     fn default_inner_radius() {
-        assert!((RadialMenuGeometry::default().inner_radius - 130.0).abs() < f32::EPSILON);
+        assert!((RadialMenuGeometry::default().inner_radius - 145.0).abs() < f32::EPSILON);
     }
 }

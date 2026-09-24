@@ -25,28 +25,20 @@ pub(super) fn validate_config(
         if set.entries.is_empty() {
             warnings.push(format!("Set \"{}\" (#{}) has no entries", set.name, i));
         }
-        // Check for wheels with zero slots
+        // Check radial-menu-set and sector cardinality.
         for entry in set.entries.iter() {
             match entry {
-                SetEntry::Wheel(w) => {
-                    if w.slots.is_empty() {
-                        warnings.push(format!(
-                            "Radial menu \"{}\" in page \"{}\" has no sectors",
-                            w.name, set.name
-                        ));
-                    }
-                }
                 SetEntry::RadialMenuSet(ws) => {
-                    if ws.wheels.is_empty() {
+                    if ws.radial_menus.is_empty() {
                         warnings.push(format!(
                             "Radial menu set \"{}\" in page \"{}\" has no radial menus",
                             ws.name, set.name
                         ));
                     }
-                    for (wi, w) in ws.wheels.iter().enumerate() {
-                        if w.slots.is_empty() {
+                    for (wi, w) in ws.radial_menus.iter().enumerate() {
+                        if w.slots.len() < 2 {
                             warnings.push(format!(
-                                "Radial menu \"{}\" (#{}) in radial menu set \"{}\" has no sectors",
+                                "Radial menu \"{}\" (#{}) in radial menu set \"{}\" must have at least 2 sectors",
                                 w.name, wi, ws.name
                             ));
                         }
@@ -79,7 +71,6 @@ pub(super) fn validate_config(
             match entry {
                 SetEntry::Action(button) => record_key(&button.key),
                 SetEntry::HudSwitch(switch) => record_key(&switch.key),
-                SetEntry::Wheel(_) => {}
                 SetEntry::RadialMenuSet(wheel_set) => {
                     record_key(&wheel_set.prev_wheel_key);
                     record_key(&wheel_set.next_wheel_key);
@@ -109,14 +100,6 @@ pub(super) fn validate_config(
                     if qa.name.trim().is_empty() {
                         warnings.push(format!(
                             "Action #{ei} in set \"{}\" has an empty name",
-                            set.name
-                        ));
-                    }
-                }
-                SetEntry::Wheel(w) => {
-                    if w.name.trim().is_empty() {
-                        warnings.push(format!(
-                            "Radial menu #{ei} in page \"{}\" has an empty name",
                             set.name
                         ));
                     }

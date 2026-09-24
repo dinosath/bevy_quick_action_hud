@@ -9,7 +9,6 @@ pub(crate) fn build_hud_canvas(
     hud: &WheelHudState,
     asset_server: &AssetServer,
     icon_set: GamepadIconSet,
-    wedge_materials: &mut Assets<WedgeMaterial>,
 ) {
     let root = commands
         .spawn_scene(hud_canvas_root())
@@ -148,18 +147,18 @@ pub(crate) fn build_hud_canvas(
         }
 
         // Clamp active_wheel_entry to a valid range.
-        let n_wheels = count_wheel_entries(set);
-        let target = if n_wheels == 0 {
+        let n_sets = count_radial_menu_sets(set);
+        let target = if n_sets == 0 {
             0
         } else {
-            hud.active_wheel_entry.min(n_wheels - 1)
+            hud.active_wheel_entry.min(n_sets - 1)
         };
 
-        // Find the target-th Wheel / RadialMenuSetState entry.
+        // Find the target-th radial-menu-set entry.
         let mut rendered = false;
         let mut wcount = 0usize;
         for (ei, entry) in set.entries.iter().enumerate() {
-            let is_wheel = matches!(entry, SetEntry::Wheel(_) | SetEntry::RadialMenuSet(_));
+            let is_wheel = matches!(entry, SetEntry::RadialMenuSet(_));
             if !is_wheel {
                 continue;
             }
@@ -167,53 +166,22 @@ pub(crate) fn build_hud_canvas(
                 wcount += 1;
                 continue;
             }
-            match entry {
-                SetEntry::Wheel(w) => {
-                    build_centered_wheel_hud(
-                        commands,
-                        page,
-                        w,
-                        hud.active_set,
-                        ei,
-                        None,
-                        hud.highlighted,
-                        hud.selected_segment,
-                        hud.selected_wheel,
-                        hud.hovered_wheel,
-                        hud.editor_open,
-                        hud.edit_control_focus,
-                        hud.theme_popup_open,
-                        wedge_materials,
-                    );
-                    rendered = true;
-                }
-                SetEntry::RadialMenuSet(ws) => {
-                    let wheel_index = hud
-                        .active_wheel_index
-                        .min(ws.wheels.len().saturating_sub(1));
-                    if let Some(w) = ws.wheels.get(wheel_index) {
-                        let mut display_wheel = w.clone();
-                        wheelset_visuals(ws).apply_to(&mut display_wheel);
-                        build_centered_wheel_hud(
-                            commands,
-                            page,
-                            &display_wheel,
-                            hud.active_set,
-                            ei,
-                            Some(wheel_index),
-                            hud.highlighted,
-                            hud.selected_segment,
-                            hud.selected_wheel,
-                            hud.hovered_wheel,
-                            hud.editor_open,
-                            hud.edit_control_focus,
-                            hud.theme_popup_open,
-                            wedge_materials,
-                        );
-                        rendered = true;
-                    }
-                }
-                _ => {}
+            if let SetEntry::RadialMenuSet(ws) = entry {
+                rendered = build_radial_menu_set_hud(
+                    commands,
+                    page,
+                    ws,
+                    hud.active_set,
+                    ei,
+                    hud.active_wheel_index,
+                    hud.highlighted,
+                    hud.selected_segment,
+                    hud.selected_wheel,
+                    hud.hovered_wheel,
+                    hud.editor_open,
+                    hud.edit_control_focus,
+                    hud.theme_popup_open,
+                );
             }
             break;
         }

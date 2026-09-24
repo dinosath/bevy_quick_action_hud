@@ -1,6 +1,6 @@
 //! Authored configuration and shared presentation for a radial-menu set.
 
-use crate::radial_menu::{RadialMenu, SegmentShape, WheelTheme, DEFAULT_STICK_BINDING};
+use crate::radial_menu::{RadialMenu, WheelTheme, DEFAULT_STICK_BINDING};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -27,8 +27,6 @@ pub struct RadialMenuSetVisuals {
     pub arc_offset: f32,
     /// Whether all wheels show sector labels.
     pub show_labels: bool,
-    /// Shared sector shape.
-    pub segment_shape: SegmentShape,
     /// Whether all wheels show sector icons.
     pub show_icon: bool,
     /// Shared highlight color.
@@ -76,7 +74,6 @@ impl From<&RadialMenu> for RadialMenuSetVisuals {
             arc_span: w.arc_span,
             arc_offset: w.arc_offset,
             show_labels: w.show_labels,
-            segment_shape: w.segment_shape,
             show_icon: w.show_icon,
             highlight_color: w.highlight_color.clone(),
             segment_scale: w.segment_scale,
@@ -107,7 +104,6 @@ impl RadialMenuSetVisuals {
         w.arc_span = self.arc_span;
         w.arc_offset = self.arc_offset;
         w.show_labels = self.show_labels;
-        w.segment_shape = self.segment_shape;
         w.show_icon = self.show_icon;
         w.highlight_color = self.highlight_color.clone();
         w.segment_scale = self.segment_scale;
@@ -129,32 +125,33 @@ impl RadialMenuSetVisuals {
 #[serde(default)]
 /// Group of radial menus sharing presentation and navigation settings.
 pub struct RadialMenuSet {
-    /// Display name of the wheel set.
+    /// Display name of the radial-menu set.
     pub name: String,
     /// Ordered radial menus in this set.
-    pub wheels: Vec<RadialMenu>,
-    /// Shared visual values applied to every wheel.
-    pub visuals: Option<RadialMenuSetVisuals>,
-    /// Minimum number of wheels allowed in the set.
-    pub min_wheels: usize,
-    /// Maximum number of wheels allowed in the set.
-    pub max_wheels: usize,
-    /// Shortcut for selecting the previous wheel.
-    pub prev_wheel_key: String,
-    /// Shortcut for selecting the next wheel.
-    pub next_wheel_key: String,
-    /// Whether next/previous navigation wraps around.
-    pub cycle_wheels: bool,
+    #[serde(alias = "wheels")]
+    pub(crate) radial_menus: Vec<RadialMenu>,
+    /// Shared visual values applied to every radial menu.
+    pub(crate) visuals: Option<RadialMenuSetVisuals>,
+    /// Minimum number of radial menus allowed in the set.
+    pub(crate) min_wheels: usize,
+    /// Maximum number of radial menus allowed in the set.
+    pub(crate) max_wheels: usize,
+    /// Shortcut for selecting the previous radial menu.
+    pub(crate) prev_wheel_key: String,
+    /// Shortcut for selecting the next radial menu.
+    pub(crate) next_wheel_key: String,
+    /// Whether next/previous radial-menu navigation wraps around.
+    pub(crate) cycle_wheels: bool,
     /// Shortcut associated with this set's wheel switch control.
-    pub switch_key: String,
+    pub(crate) switch_key: String,
     /// Thumbstick binding used by the set's radial menus.
-    pub stick_binding: String,
+    pub(crate) stick_binding: String,
 }
 impl Default for RadialMenuSet {
     fn default() -> Self {
         Self {
             name: "Radial menu set".into(),
-            wheels: vec![RadialMenu::default()],
+            radial_menus: vec![RadialMenu::default()],
             visuals: Some(RadialMenuSetVisuals::default()),
             min_wheels: 1,
             max_wheels: 8,
@@ -167,29 +164,42 @@ impl Default for RadialMenuSet {
     }
 }
 
+impl RadialMenuSet {
+    /// Returns the radial menu at `index`, if the set contains one.
+    pub fn radial_menu(&self, index: usize) -> Option<&RadialMenu> {
+        self.radial_menus.get(index)
+    }
+
+    /// Returns the number of radial menus in this set.
+    pub fn radial_menu_count(&self) -> usize {
+        self.radial_menus.len()
+    }
+}
+
 /// Returns the effective shared presentation values for a wheel set.
 ///
 /// Legacy configurations without an explicit `visuals` block inherit values
-/// from their first wheel.
+/// from their first radial menu.
 pub fn wheelset_visuals(ws: &RadialMenuSet) -> RadialMenuSetVisuals {
     ws.visuals
         .clone()
-        .or_else(|| ws.wheels.first().map(RadialMenuSetVisuals::from))
+        .or_else(|| ws.radial_menus.first().map(RadialMenuSetVisuals::from))
         .unwrap_or_default()
 }
-/// Repairs wheel-count bounds and reapplies shared visuals to every wheel.
+/// Repairs radial-menu count bounds and reapplies shared visuals to every menu.
 pub fn normalize_wheelset(ws: &mut RadialMenuSet) {
     let visuals = wheelset_visuals(ws);
     ws.visuals = Some(visuals.clone());
     ws.min_wheels = ws.min_wheels.max(1);
-    ws.max_wheels = ws.max_wheels.max(ws.min_wheels).max(ws.wheels.len());
-    while ws.wheels.len() < ws.min_wheels {
-        let mut wheel = RadialMenu::new(format!("Radial menu {}", ws.wheels.len() + 1), 6);
+    ws.max_wheels = ws.max_wheels.max(ws.min_wheels).max(ws.radial_menus.len());
+    while ws.radial_menus.len() < ws.min_wheels {
+        let mut wheel = RadialMenu::new(format!("Radial menu {}", ws.radial_menus.len() + 1), 6);
         visuals.apply_to(&mut wheel);
         wheel.stick_binding = ws.stick_binding.clone();
-        ws.wheels.push(wheel);
+        ws.radial_menus.push(wheel);
     }
-    for wheel in &mut ws.wheels {
+    for wheel in &mut ws.radial_menus {
+        wheel.ensure_minimum_sectors();
         visuals.apply_to(wheel);
         wheel.stick_binding = ws.stick_binding.clone();
     }

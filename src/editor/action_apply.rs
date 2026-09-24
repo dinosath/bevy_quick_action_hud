@@ -169,17 +169,11 @@ pub(super) fn apply_action(
                 }));
             }
         }
-        EditorAction::AddWheel { set } => {
-            if let Some(s) = cfg.sets.get_mut(set) {
-                s.entries
-                    .push(SetEntry::Wheel(RadialMenu::new("New radial menu", 6)));
-            }
-        }
         EditorAction::AddWheelSet { set } => {
             if let Some(s) = cfg.sets.get_mut(set) {
                 s.entries.push(SetEntry::RadialMenuSet(RadialMenuSet {
                     name: "New radial menu set".into(),
-                    wheels: vec![RadialMenu::new("Radial menu 1", 6)],
+                    radial_menus: vec![RadialMenu::new("Radial menu 1", 6)],
                     ..default()
                 }));
             }
@@ -198,12 +192,12 @@ pub(super) fn apply_action(
             if let Some(SetEntry::RadialMenuSet(ws)) =
                 cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
             {
-                if ws.wheels.len() < ws.max_wheels {
-                    let n = ws.wheels.len() + 1;
+                if ws.radial_menus.len() < ws.max_wheels {
+                    let n = ws.radial_menus.len() + 1;
                     let mut wheel = RadialMenu::new(format!("Radial menu {}", n), 6);
                     wheelset_visuals(ws).apply_to(&mut wheel);
                     wheel.stick_binding = ws.stick_binding.clone();
-                    ws.wheels.push(wheel);
+                    ws.radial_menus.push(wheel);
                 }
             }
         }
@@ -233,8 +227,8 @@ pub(super) fn apply_action(
             if let Some(SetEntry::RadialMenuSet(ws)) =
                 cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
             {
-                if ws.wheels.len() > ws.min_wheels && wheel < ws.wheels.len() {
-                    ws.wheels.remove(wheel);
+                if ws.radial_menus.len() > ws.min_wheels && wheel < ws.radial_menus.len() {
+                    ws.radial_menus.remove(wheel);
                 }
             }
             let clear = matches!(ui.selection,
@@ -619,7 +613,7 @@ pub(super) fn apply_action(
                 cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
             {
                 ws.max_wheels = (ws.max_wheels as i32 + delta)
-                    .clamp(ws.min_wheels.max(ws.wheels.len()) as i32, 64)
+                    .clamp(ws.min_wheels.max(ws.radial_menus.len()) as i32, 64)
                     as usize;
             }
         }
@@ -634,13 +628,13 @@ pub(super) fn apply_action(
             if let Some(SetEntry::RadialMenuSet(ws)) =
                 cfg.sets.get(set).and_then(|s| s.entries.get(entry))
             {
-                if !ws.wheels.is_empty() {
+                if !ws.radial_menus.is_empty() {
                     hud.active_set = set;
                     hud.active_wheel_entry = wheel_entry_idx(cfg, set, entry);
                     hud.active_wheel_index = hud
                         .active_wheel_index
                         .checked_sub(1)
-                        .unwrap_or(ws.wheels.len() - 1);
+                        .unwrap_or(ws.radial_menus.len() - 1);
                     hud.selected_segment = None;
                     hud.highlighted = None;
                     hud.dirty = true;
@@ -651,10 +645,10 @@ pub(super) fn apply_action(
             if let Some(SetEntry::RadialMenuSet(ws)) =
                 cfg.sets.get(set).and_then(|s| s.entries.get(entry))
             {
-                if !ws.wheels.is_empty() {
+                if !ws.radial_menus.is_empty() {
                     hud.active_set = set;
                     hud.active_wheel_entry = wheel_entry_idx(cfg, set, entry);
-                    hud.active_wheel_index = (hud.active_wheel_index + 1) % ws.wheels.len();
+                    hud.active_wheel_index = (hud.active_wheel_index + 1) % ws.radial_menus.len();
                     hud.selected_segment = None;
                     hud.highlighted = None;
                     hud.dirty = true;
@@ -816,7 +810,7 @@ pub(super) fn apply_action(
                 cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
             {
                 ws.stick_binding = DEFAULT_STICK_BINDING.into();
-                for wheel in &mut ws.wheels {
+                for wheel in &mut ws.radial_menus {
                     wheel.stick_binding = DEFAULT_STICK_BINDING.into();
                 }
             }

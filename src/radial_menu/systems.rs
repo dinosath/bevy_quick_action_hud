@@ -3,6 +3,8 @@
 use crate::*;
 use bevy::prelude::*;
 
+use super::components::sector_index_at_angle;
+
 /// Determines which slice is hovered and handles per-mode activation:
 /// - [`CastingMode::ReleaseToUse`]: fires [`WheelMenuSelected`] when the stick
 ///   returns to centre.
@@ -23,16 +25,7 @@ pub fn update_wheel_hover(
         if state.dir.length() < menu.deadzone {
             state.hovered = None;
         } else {
-            let a = state.dir.y.atan2(state.dir.x);
-            // Angle relative to the arc start, wrapped into [0, TAU).
-            let rel = (a - menu.arc_offset).rem_euclid(std::f32::consts::TAU);
-            if rel <= menu.arc_span {
-                let idx = ((rel / menu.arc_span) * menu.slots.len().max(1) as f32).floor() as usize;
-                state.hovered = Some(idx.min(menu.slots.len().max(1).saturating_sub(1)));
-            } else {
-                // Direction points outside a partial arc.
-                state.hovered = None;
-            }
+            state.hovered = sector_index_at_angle(menu, state.dir.y.atan2(state.dir.x));
         }
 
         if previous != state.hovered {

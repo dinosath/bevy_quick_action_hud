@@ -32,9 +32,6 @@ pub enum EditorAction {
     AddAction {
         set: usize,
     },
-    AddWheel {
-        set: usize,
-    },
     AddWheelSet {
         set: usize,
     },

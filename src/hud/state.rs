@@ -1,41 +1,6 @@
 //! Runtime state and rendering types for the HUD feature.
 
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderType};
-use bevy::shader::ShaderRef;
-
-#[derive(Clone, ShaderType)]
-/// Uniform values consumed by the procedural radial wedge shader.
-pub struct WedgeParams {
-    /// Fill color in shader space.
-    pub color: Vec4,
-    /// Border color in shader space.
-    pub border_color: Vec4,
-    /// Inner radius of the procedural wedge.
-    pub inner_r: f32,
-    /// Outer radius of the procedural wedge.
-    pub outer_r: f32,
-    /// Start angle in radians.
-    pub angle_start: f32,
-    /// End angle in radians.
-    pub angle_end: f32,
-    /// Width of the rendered edge.
-    pub edge_width: f32,
-}
-
-#[derive(Asset, AsBindGroup, TypePath, Clone)]
-/// UI material used to render a procedural pie sector.
-pub struct WedgeMaterial {
-    #[uniform(0)]
-    /// Uniform parameters consumed by the wedge shader.
-    pub params: WedgeParams,
-}
-
-impl UiMaterial for WedgeMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "embedded://bevy_quick_action_hud/embedded/shaders/wedge.wgsl".into()
-    }
-}
 
 #[derive(Resource)]
 /// Runtime state for HUD visibility, selection, and retained rebuilding.

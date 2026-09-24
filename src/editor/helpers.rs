@@ -51,8 +51,7 @@ pub(super) fn wheel_at(cfg: &mut QuickActionConfig, sel: Selection) -> Option<&m
         _ => return None,
     };
     match cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry)) {
-        Some(SetEntry::Wheel(w)) if wheel.is_none() => Some(w),
-        Some(SetEntry::RadialMenuSet(ws)) => wheel.and_then(move |i| ws.wheels.get_mut(i)),
+        Some(SetEntry::RadialMenuSet(ws)) => wheel.and_then(move |i| ws.radial_menus.get_mut(i)),
         _ => None,
     }
 }

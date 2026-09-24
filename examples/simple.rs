@@ -111,12 +111,10 @@ fn log_hud_selection(
             continue;
         };
         let (component, slot) = match (entry, event.wheel) {
-            (SetEntry::Wheel(wheel), None) => (wheel.name.as_str(), wheel.slots.get(event.slot)),
             (SetEntry::RadialMenuSet(wheel_set), Some(index)) => (
                 wheel_set.name.as_str(),
                 wheel_set
-                    .wheels
-                    .get(index)
+                    .radial_menu(index)
                     .and_then(|wheel| wheel.slots.get(event.slot)),
             ),
             _ => ("unknown", None),

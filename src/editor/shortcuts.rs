@@ -96,8 +96,7 @@ pub(super) fn hud_button_action_shortcuts(
     }
 }
 
-/// Navigates between legacy top-level wheel entries or, for the active
-/// `RadialMenuSetState`, between that set's internal wheels.
+/// Navigates between the radial menus in the active radial-menu set.
 pub(super) fn hud_wheel_nav(
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
@@ -112,7 +111,7 @@ pub(super) fn hud_wheel_nav(
     let Some(set) = cfg.sets.get(hud.active_set) else {
         return;
     };
-    let n = count_wheel_entries(set);
+    let n = count_radial_menu_sets(set);
     if n == 0 {
         return;
     }
@@ -126,20 +125,6 @@ pub(super) fn hud_wheel_nav(
     let mut switch_config: Option<(&str, &str, bool, usize, bool)> = None;
     for entry in &set.entries {
         match entry {
-            SetEntry::Wheel(_) => {
-                if wheel_entry == hud.active_wheel_entry {
-                    // Standalone wheels retain the legacy set-level navigation.
-                    switch_config = Some((
-                        &set.next_wheel_key,
-                        &set.prev_wheel_key,
-                        set.cycle_wheels,
-                        n,
-                        false,
-                    ));
-                    break;
-                }
-                wheel_entry += 1;
-            }
             SetEntry::RadialMenuSet(ws) => {
                 if wheel_entry == hud.active_wheel_entry {
                     let next = if ws.next_wheel_key.is_empty() {
@@ -154,7 +139,7 @@ pub(super) fn hud_wheel_nav(
                     };
                     // A wheel set's shortcuts switch its internal wheels, not
                     // unrelated wheel components on the HUD page.
-                    let wheel_count = ws.wheels.len();
+                    let wheel_count = ws.radial_menus.len();
                     switch_config = Some((next, prev, ws.cycle_wheels, wheel_count, true));
                     break;
                 }

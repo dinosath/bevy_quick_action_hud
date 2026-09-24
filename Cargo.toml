@@ -52,6 +52,10 @@ name = "simple"
 path = "examples/simple.rs"
 required-features = ["editor"]
 
+[[example]]
+name = "radial_menu_probe"
+path = "examples/radial_menu_probe.rs"
+
 [lib]
 name = "bevy_quick_action_hud"
 path = "src/lib.rs"

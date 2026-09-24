@@ -2,8 +2,58 @@ use crate::*;
 use bevy::prelude::*;
 
 use super::primitives::*;
+use crate::radial_menu::components::{
+    blend_radial_menu_colors, radial_menu_anchor, radial_menu_background, radial_menu_center_ring,
+    radial_menu_divider, radial_menu_hub, radial_menu_hub_radius, radial_menu_label,
+    radial_menu_outer_ring, radial_menu_sector, radial_menu_sector_content,
+    radial_menu_sector_panel_height, rendered_sector_outer_radius, RADIAL_MENU_BACKGROUND_RGB,
+    RADIAL_MENU_DEFAULT_BORDER_WIDTH, RADIAL_MENU_DIVIDER_RGBA, RADIAL_MENU_DIVIDER_WIDTH,
+    RADIAL_MENU_HUB_BORDER_RGBA, RADIAL_MENU_ICON_SIZE_RANGE, RADIAL_MENU_ICON_SIZE_RATIO,
+    RADIAL_MENU_LABEL_RGBA, RADIAL_MENU_LABEL_SIZE_RANGE, RADIAL_MENU_LABEL_SIZE_RATIO,
+    RADIAL_MENU_OUTER_BORDER_RGBA, RADIAL_MENU_SECTOR_RGBA, RADIAL_MENU_SELECTED_HIGHLIGHT_WEIGHT,
+};
 
-pub(crate) fn build_centered_wheel_hud(
+pub(crate) fn build_radial_menu_set_hud(
+    commands: &mut Commands,
+    parent: Entity,
+    menu_set: &RadialMenuSet,
+    set: usize,
+    entry: usize,
+    active_menu: usize,
+    highlighted: Option<(usize, usize, Option<usize>, usize)>,
+    selected_segment: Option<(usize, usize, Option<usize>, usize)>,
+    selected_wheel: Option<(usize, usize, Option<usize>)>,
+    hovered_wheel: Option<(usize, usize, Option<usize>)>,
+    editor_open: bool,
+    edit_control_focus: Option<usize>,
+    theme_popup_open: bool,
+) -> bool {
+    let menu_index = active_menu.min(menu_set.radial_menu_count().saturating_sub(1));
+    let Some(menu) = menu_set.radial_menu(menu_index) else {
+        return false;
+    };
+    let mut display_menu = menu.clone();
+    wheelset_visuals(menu_set).apply_to(&mut display_menu);
+    build_radial_menu_hud(
+        commands,
+        parent,
+        &display_menu,
+        set,
+        entry,
+        Some(menu_index),
+        highlighted,
+        selected_segment,
+        selected_wheel,
+        hovered_wheel,
+        editor_open,
+        edit_control_focus,
+        theme_popup_open,
+    );
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_radial_menu_hud(
     commands: &mut Commands,
     parent: Entity,
     wheel: &RadialMenu,
@@ -17,59 +67,66 @@ pub(crate) fn build_centered_wheel_hud(
     editor_open: bool,
     edit_control_focus: Option<usize>,
     theme_popup_open: bool,
-    wedge_materials: &mut Assets<WedgeMaterial>,
 ) {
     let n_slices = wheel.slots.len().max(1);
-    let hub = hud_child(commands, parent, wheel_hub());
-    commands.entity(hub).insert(Node {
-        position_type: PositionType::Relative,
-        left: Val::Px(wheel.offset_x),
-        top: Val::Px(-wheel.offset_y),
+    let anchor = hud_child(commands, parent, radial_menu_anchor());
+    let hub = hud_child(commands, anchor, radial_menu_hub());
+    commands.entity(hub).insert(UiTransform {
+        translation: Val2::px(wheel.offset_x, -wheel.offset_y),
+        rotation: Rot2::degrees(wheel.rotation),
         ..default()
     });
-    if wheel.rotation != 0.0 {
-        commands
-            .entity(hub)
-            .insert(Transform::from_rotation(Quat::from_rotation_z(
-                wheel.rotation.to_radians(),
-            )));
-    }
 
-    let is_pie = wheel.segment_shape == SegmentShape::Pie;
-    if !is_pie {
-        let bg_col = if wheel.bg_color.is_empty() {
-            Color::srgba(0.096, 0.118, 0.157, wheel.bg_opacity)
-        } else {
-            parse_hex_color(&wheel.bg_color, wheel.bg_opacity)
-        };
-        hud_child(commands, hub, wheel_bg_disc(wheel.outer_radius, bg_col));
-    }
-    let outer_col = if wheel.outer_border.is_empty() {
-        Color::srgba(0.38, 0.39, 0.39, 0.90)
+    let bg_col = if wheel.bg_color.is_empty() {
+        Color::srgba(
+            RADIAL_MENU_BACKGROUND_RGB[0],
+            RADIAL_MENU_BACKGROUND_RGB[1],
+            RADIAL_MENU_BACKGROUND_RGB[2],
+            wheel.bg_opacity,
+        )
     } else {
-        parse_hex_color(&wheel.outer_border, 1.0)
-    };
-    let outer_bw = if wheel.outer_border.is_empty() {
-        1.0_f32
-    } else {
-        wheel.outer_border_width.max(0.0)
+        parse_hex_color(&wheel.bg_color, wheel.bg_opacity)
     };
     hud_child(
         commands,
         hub,
-        wheel_outer_ring(wheel.outer_radius, outer_col, outer_bw),
+        radial_menu_background(wheel.outer_radius, bg_col),
     );
-
-    let slice_angle = std::f32::consts::TAU / n_slices as f32;
-    let base_pw = (2.0 * wheel.outer_radius * (slice_angle / 2.0).sin() * 0.72).max(48.0);
-    let base_ph = ((wheel.outer_radius - wheel.inner_radius) * 0.85).max(40.0);
-    let panel_w = (base_pw * wheel.segment_scale).max(32.0);
-    let panel_h = (base_ph * wheel.segment_scale).max(24.0);
-    let min_dim = panel_w.min(panel_h);
+    let outer_col = if wheel.outer_border.is_empty() {
+        Color::srgba(
+            RADIAL_MENU_OUTER_BORDER_RGBA[0],
+            RADIAL_MENU_OUTER_BORDER_RGBA[1],
+            RADIAL_MENU_OUTER_BORDER_RGBA[2],
+            RADIAL_MENU_OUTER_BORDER_RGBA[3],
+        )
+    } else {
+        parse_hex_color(&wheel.outer_border, 1.0)
+    };
+    let outer_bw = if wheel.outer_border.is_empty() {
+        RADIAL_MENU_DEFAULT_BORDER_WIDTH
+    } else {
+        wheel.outer_border_width.max(0.0)
+    };
     let highlight_col = parse_hex_color(&wheel.highlight_color, 1.0);
-    let slice_bg = Color::srgb(0.115, 0.12, 0.12);
-    let label_c = Color::srgb(0.91, 0.91, 0.89);
-    let label_sz = (panel_h * 0.18).clamp(9.0, 13.0);
+    let slice_bg = Color::srgba(
+        RADIAL_MENU_SECTOR_RGBA[0],
+        RADIAL_MENU_SECTOR_RGBA[1],
+        RADIAL_MENU_SECTOR_RGBA[2],
+        RADIAL_MENU_SECTOR_RGBA[3],
+    );
+    let sector_border = Color::srgba(
+        RADIAL_MENU_DIVIDER_RGBA[0],
+        RADIAL_MENU_DIVIDER_RGBA[1],
+        RADIAL_MENU_DIVIDER_RGBA[2],
+        RADIAL_MENU_DIVIDER_RGBA[3],
+    );
+    let label_c = Color::srgba(
+        RADIAL_MENU_LABEL_RGBA[0],
+        RADIAL_MENU_LABEL_RGBA[1],
+        RADIAL_MENU_LABEL_RGBA[2],
+        RADIAL_MENU_LABEL_RGBA[3],
+    );
+    let mut selected_visual = None;
 
     for (i, slot) in wheel.slots.iter().enumerate() {
         if i >= n_slices {
@@ -78,165 +135,173 @@ pub(crate) fn build_centered_wheel_hud(
         let is_sel = highlighted
             .map(|(s, e, w, sl)| s == set && e == entry && w == w_idx && sl == i)
             .unwrap_or(false);
-        // The reference keeps the selected sector translucent so the dark
-        // wheel surface remains visible beneath the coral tint.
         let seg_color = if is_sel {
-            highlight_col.with_alpha(0.38)
+            blend_radial_menu_colors(
+                slice_bg,
+                highlight_col,
+                RADIAL_MENU_SELECTED_HIGHLIGHT_WEIGHT,
+            )
         } else {
             slice_bg
         };
 
-        if is_pie {
-            let (a0, a1) = slice_angles(wheel, i);
-            let mat_handle = wedge_materials.add(WedgeMaterial {
-                params: WedgeParams {
-                    color: seg_color.to_linear().to_vec4(),
-                    border_color: if is_sel {
-                        highlight_col.to_linear().to_vec4()
-                    } else {
-                        Color::srgb(0.30, 0.31, 0.31).to_linear().to_vec4()
-                    },
-                    inner_r: wheel.inner_radius,
-                    outer_r: wheel.outer_radius,
-                    angle_start: a0,
-                    angle_end: a1,
-                    edge_width: if is_sel { 2.0 } else { 0.8 },
+        let (start, end) = slice_angles(wheel, i);
+        let sector_span = (end - start).max(0.0);
+        let half_sector_sine = (sector_span * 0.5).sin().abs();
+        let sector_rotation = std::f32::consts::FRAC_PI_2 - (start + end) * 0.5;
+        let render_outer_radius = rendered_sector_outer_radius(wheel, is_sel);
+        // The panel reaches the hub rather than stopping at `inner_radius`.
+        // The hub is then the one authoritative circular clip for every
+        // sector's inner edge.  Stopping at the inner radius creates the
+        // incorrect flat, trapezoidal termination visible in the old probe.
+        let panel_h = radial_menu_sector_panel_height(render_outer_radius);
+        let center_angle = (start + end) * 0.5;
+        let ctr = Vec2::new(
+            center_angle.cos() * panel_h * 0.5,
+            center_angle.sin() * panel_h * 0.5,
+        );
+        let label_sz = ((wheel.outer_radius - wheel.inner_radius) * RADIAL_MENU_LABEL_SIZE_RATIO)
+            .clamp(
+                RADIAL_MENU_LABEL_SIZE_RANGE.0,
+                RADIAL_MENU_LABEL_SIZE_RANGE.1,
+            );
+        let sector_width = (2.0 * render_outer_radius * half_sector_sine).max(32.0);
+        let content_rotation = sector_rotation;
+        let panel_scene = radial_menu_sector(
+            ctr,
+            sector_width,
+            panel_h,
+            render_outer_radius,
+            sector_span,
+            seg_color,
+            is_sel.then_some(highlight_col),
+            content_rotation,
+        );
+        let panel_e = commands
+            .spawn_scene(bsn! {
+                { panel_scene }
+                ChildOf(hub)
+            })
+            .insert((
+                WheelHudSegmentHit {
+                    set,
+                    entry,
+                    wheel: w_idx,
+                    slot: i,
                 },
-            });
-            let dia = wheel.outer_radius * 2.0;
-            let wedge_e = commands
-                .spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: Val::Px(-wheel.outer_radius),
-                        top: Val::Px(-wheel.outer_radius),
-                        width: Val::Px(dia),
-                        height: Val::Px(dia),
-                        ..default()
-                    },
-                    MaterialNode(mat_handle),
-                ))
-                .id();
-            commands.entity(hub).add_child(wedge_e);
-            let ctr = slice_center(wheel, i);
-            let panel_e = commands
-                .spawn_scene(bsn! {
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left:   {Val::Px(ctr.x - panel_w / 2.0)},
-                        top:    {Val::Px(-ctr.y - panel_h / 2.0)},
-                        width:  {Val::Px(panel_w)}, height: {Val::Px(panel_h)},
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        flex_direction: FlexDirection::Column,
-                        padding: {UiRect::all(Val::Px(6.))},
-                    }
-                    BackgroundColor({Color::NONE})
-                })
-                .insert((
-                    WheelHudSegmentHit {
-                        set,
-                        entry,
-                        wheel: w_idx,
-                        slot: i,
-                    },
-                    Interaction::None,
-                    Button,
-                ))
-                .id();
-            commands.entity(hub).add_child(panel_e);
-            if wheel.show_labels {
-                hud_child(
-                    commands,
-                    panel_e,
-                    wheel_slice_label(slot.name.to_uppercase(), label_sz, label_c),
-                );
-            }
-            if wheel.show_icon && !slot.icon.is_empty() {
-                hud_wheel_icon(
-                    commands,
-                    panel_e,
-                    &slot.icon,
-                    (panel_h * 0.42).clamp(24.0, 44.0),
-                    i,
-                );
-            } else if wheel.show_labels {
-                hud_child(
-                    commands,
-                    panel_e,
-                    bsn! { Node { width: {Val::Px(4.)}, height: {Val::Px(4.)} } },
-                );
-            }
-        } else {
-            let seg_br = match wheel.segment_shape {
-                SegmentShape::Square => BorderRadius::all(Val::Px(0.0)),
-                SegmentShape::Rounded => BorderRadius::all(Val::Px(min_dim * 0.14)),
-                SegmentShape::Circle => BorderRadius::all(Val::Px(min_dim * 0.5)),
-                SegmentShape::Wedge => BorderRadius {
-                    top_left: Val::Px(min_dim * 0.40),
-                    top_right: Val::Px(min_dim * 0.40),
-                    bottom_left: Val::Px(min_dim * 0.05),
-                    bottom_right: Val::Px(min_dim * 0.05),
-                },
-                SegmentShape::Pie => unreachable!(),
-            };
-            let ctr = slice_center(wheel, i);
-            let panel_e = commands
-                .spawn_scene(bsn! {
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left:   {Val::Px(ctr.x - panel_w / 2.0)},
-                        top:    {Val::Px(-ctr.y - panel_h / 2.0)},
-                        width:  {Val::Px(panel_w)}, height: {Val::Px(panel_h)},
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        flex_direction: FlexDirection::Column,
-                        padding: {UiRect::all(Val::Px(6.))},
-                        border_radius: {seg_br},
-                    }
-                    BackgroundColor({seg_color})
-                })
-                .insert((
-                    WheelHudSegmentHit {
-                        set,
-                        entry,
-                        wheel: w_idx,
-                        slot: i,
-                    },
-                    Interaction::None,
-                    Button,
-                ))
-                .id();
-            commands.entity(hub).add_child(panel_e);
-            if wheel.show_labels {
-                hud_child(
-                    commands,
-                    panel_e,
-                    wheel_slice_label(slot.name.to_uppercase(), label_sz, label_c),
-                );
-            }
-            if wheel.show_icon && !slot.icon.is_empty() {
-                hud_wheel_icon(
-                    commands,
-                    panel_e,
-                    &slot.icon,
-                    (panel_h * 0.42).clamp(24.0, 44.0),
-                    i,
-                );
-            } else if wheel.show_labels {
-                hud_child(
-                    commands,
-                    panel_e,
-                    bsn! { Node { width: {Val::Px(4.)}, height: {Val::Px(4.)} } },
-                );
-            }
+                Interaction::None,
+                Button,
+            ))
+            .id();
+        if is_sel {
+            // Repaint this scene after the shared base ring below.  Keeping
+            // the interactive panel here preserves one hit target per sector.
+            selected_visual = Some((
+                ctr,
+                sector_width,
+                panel_h,
+                render_outer_radius,
+                sector_span,
+                content_rotation,
+            ));
+        }
+        let content_e = hud_child(
+            commands,
+            panel_e,
+            radial_menu_sector_content(content_rotation, wheel.inner_radius * 0.5),
+        );
+        if is_sel {
+            // The selected surface is repainted after the base outer ring;
+            // keep its label/icon above that visual-only repaint.
+            commands.entity(content_e).insert(GlobalZIndex(1));
+        }
+        if wheel.show_labels {
+            hud_child(
+                commands,
+                content_e,
+                radial_menu_label(slot.name.to_uppercase(), label_sz, label_c),
+            );
+        }
+        if wheel.show_icon && !slot.icon.is_empty() {
+            hud_wheel_icon(
+                commands,
+                content_e,
+                &slot.icon,
+                (panel_h * RADIAL_MENU_ICON_SIZE_RATIO)
+                    .clamp(RADIAL_MENU_ICON_SIZE_RANGE.0, RADIAL_MENU_ICON_SIZE_RANGE.1),
+                i,
+            );
+        } else if wheel.show_labels {
+            hud_child(
+                commands,
+                content_e,
+                bsn! { Node { width: {Val::Px(4.)}, height: {Val::Px(4.)} } },
+            );
         }
     }
 
+    // The shared outer ring stays continuous around unselected sectors.  The
+    // highlighted sector is then redrawn over its own portion of the ring.
+    hud_child(
+        commands,
+        hub,
+        radial_menu_outer_ring(wheel.outer_radius, outer_col, outer_bw),
+    );
+    if let Some((center, width, height, outer_radius, sector_span, rotation)) = selected_visual {
+        hud_child(
+            commands,
+            hub,
+            radial_menu_sector(
+                center,
+                width,
+                height,
+                outer_radius,
+                sector_span,
+                blend_radial_menu_colors(
+                    slice_bg,
+                    highlight_col,
+                    RADIAL_MENU_SELECTED_HIGHLIGHT_WEIGHT,
+                ),
+                Some(highlight_col),
+                rotation,
+            ),
+        );
+    }
+
+    for i in 0..n_slices {
+        let (start, _) = slice_angles(wheel, i);
+        let previous = (i + n_slices - 1) % n_slices;
+        let selected_boundary = highlighted
+            .map(|(s, e, w, slot)| {
+                s == set && e == entry && w == w_idx && (slot == i || slot == previous)
+            })
+            .unwrap_or(false);
+        hud_child(
+            commands,
+            hub,
+            radial_menu_divider(
+                start,
+                wheel.inner_radius,
+                rendered_sector_outer_radius(wheel, selected_boundary),
+                if selected_boundary {
+                    highlight_col
+                } else {
+                    sector_border
+                },
+                RADIAL_MENU_DIVIDER_WIDTH,
+            ),
+        );
+    }
+
     // Centre hub ring.
-    let disc_r = (wheel.inner_radius - 4.0).max(8.0);
+    let disc_r = radial_menu_hub_radius(wheel);
     let ring_col = if wheel.inner_border.is_empty() {
-        Color::srgb(0.34, 0.35, 0.35)
+        Color::srgba(
+            RADIAL_MENU_HUB_BORDER_RGBA[0],
+            RADIAL_MENU_HUB_BORDER_RGBA[1],
+            RADIAL_MENU_HUB_BORDER_RGBA[2],
+            RADIAL_MENU_HUB_BORDER_RGBA[3],
+        )
     } else {
         parse_hex_color(&wheel.inner_border, 1.0)
     };
@@ -246,14 +311,14 @@ pub(crate) fn build_centered_wheel_hud(
         parse_hex_color(&wheel.hub_color, wheel.hub_opacity)
     };
     let inner_bw = if wheel.inner_border.is_empty() {
-        1.0_f32
+        RADIAL_MENU_DEFAULT_BORDER_WIDTH
     } else {
         wheel.inner_border_width.max(0.0)
     };
     let center = hud_child(
         commands,
         hub,
-        wheel_center_ring(disc_r, hub_bg, ring_col, inner_bw),
+        radial_menu_center_ring(disc_r, hub_bg, ring_col, inner_bw),
     );
     if editor_open {
         commands.entity(center).insert((

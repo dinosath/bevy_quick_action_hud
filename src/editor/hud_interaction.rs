@@ -168,7 +168,7 @@ pub(super) fn process_hud_buttons(
                             wheel: *wheel,
                         },
                     ) {
-                        if w.slots.len() > 1 && *slot < w.slots.len() {
+                        if w.slots.len() > MIN_SECTORS && *slot < w.slots.len() {
                             w.slots.remove(*slot);
                             let next_slot = (*slot).min(w.slots.len() - 1);
                             ui.selection = Selection::Segment {
@@ -330,7 +330,7 @@ pub(super) fn process_hud_buttons(
                             wheel: *wheel,
                         },
                     ) {
-                        if w.slots.len() > 1 && *slot < w.slots.len() {
+                        if w.slots.len() > MIN_SECTORS && *slot < w.slots.len() {
                             w.slots.remove(*slot);
                         }
                     }

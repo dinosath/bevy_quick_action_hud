@@ -102,7 +102,7 @@ fn _full_opacity() -> f32 {
     1.0
 }
 fn _default_highlight_color() -> String {
-    "#ef8b92".into()
+    "#a8e9ec".into()
 }
 fn _default_segment_scale() -> f32 {
     1.0
@@ -296,7 +296,7 @@ impl HudComponent for HudSwitch {
         self.enabled
     }
 }
-/// Ensures the document has a page and normalizes each wheel set.
+/// Ensures the document has a page and normalizes each radial-menu set.
 pub fn normalize_wheelset_config(cfg: &mut QuickActionConfig) {
     // A HUD document always contains at least one page, including after
     // loading an empty hand-authored or legacy RON document.
@@ -317,8 +317,6 @@ pub fn normalize_wheelset_config(cfg: &mut QuickActionConfig) {
 pub enum SetEntry {
     /// A floating quick-action button.
     Action(QuickAction),
-    /// A single radial menu.
-    Wheel(RadialMenu),
     /// A set containing one or more radial menus.
     #[serde(alias = "WheelSet")]
     RadialMenuSet(RadialMenuSet),
@@ -326,7 +324,7 @@ pub enum SetEntry {
     HudSwitch(HudSwitch),
 }
 
-/// A named context group that holds quick actions and wheels.
+/// A named HUD page that holds buttons, radial-menu sets, and page switches.
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ActionSet {
     /// Page name shown in the HUD page selector.
@@ -379,15 +377,16 @@ impl Default for ActionSet {
     }
 }
 
+/// Canonical page type for the authored HUD document.
 pub type HudPage = ActionSet;
 /// Compatibility alias for [`QuickAction`] as a HUD button.
 pub type HudButton = QuickAction;
 
-/// Returns the number of `Wheel` and `RadialMenuSetState` entries in a set.
-pub fn count_wheel_entries(set: &ActionSet) -> usize {
+/// Returns the number of radial-menu-set entries in a page.
+pub fn count_radial_menu_sets(set: &ActionSet) -> usize {
     set.entries
         .iter()
-        .filter(|e| matches!(e, SetEntry::Wheel(_) | SetEntry::RadialMenuSet(_)))
+        .filter(|e| matches!(e, SetEntry::RadialMenuSet(_)))
         .count()
 }
 
@@ -462,7 +461,7 @@ pub struct QuickActionConfig {
 
 impl Default for QuickActionConfig {
     fn default() -> Self {
-        let mut combat_wheel = RadialMenu::new("Combat radial menu", 6);
+        let mut combat_wheel = RadialMenu::new("Combat radial menu", 4);
         combat_wheel.slots = vec![
             Sector {
                 name: "Open map".into(),
@@ -482,16 +481,6 @@ impl Default for QuickActionConfig {
             Sector {
                 name: "Heal".into(),
                 icon: "♧".into(),
-                ..default()
-            },
-            Sector {
-                name: "Ability".into(),
-                icon: "△".into(),
-                ..default()
-            },
-            Sector {
-                name: "Sprint".into(),
-                icon: "◌".into(),
                 ..default()
             },
         ];
@@ -514,7 +503,7 @@ impl Default for QuickActionConfig {
                     entries: vec![
                         SetEntry::RadialMenuSet(RadialMenuSet {
                             name: "Combat radial menu set".into(),
-                            wheels: vec![combat_wheel, RadialMenu::new("Radial menu 2", 6)],
+                            radial_menus: vec![combat_wheel, RadialMenu::new("Radial menu 2", 4)],
                             ..default()
                         }),
                         SetEntry::Action(QuickAction {
@@ -553,7 +542,7 @@ impl Default for QuickActionConfig {
                     entries: vec![
                         SetEntry::RadialMenuSet(RadialMenuSet {
                             name: "Stealth radial menus".into(),
-                            wheels: vec![RadialMenu::new("Stealth radial menu", 4)],
+                            radial_menus: vec![RadialMenu::new("Stealth radial menu", 4)],
                             ..default()
                         }),
                         SetEntry::Action(QuickAction {

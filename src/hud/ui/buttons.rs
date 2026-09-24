@@ -152,9 +152,7 @@ pub(crate) fn build_hud_action_buttons(
         if qa.rotation != 0.0 {
             commands
                 .entity(btn_node)
-                .insert(Transform::from_rotation(Quat::from_rotation_z(
-                    qa.rotation.to_radians(),
-                )));
+                .insert(UiTransform::from_rotation(Rot2::degrees(qa.rotation)));
         }
         commands.entity(button_wrap).add_child(btn_node);
         hud_child(commands, btn_node, hud_text(&qa.name, 10., tc));

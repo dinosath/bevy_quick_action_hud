@@ -8,9 +8,12 @@ pub(crate) fn hud_child(
     parent: Entity,
     scene: impl bevy::scene::prelude::Scene,
 ) -> Entity {
-    let e = commands.spawn_scene(scene).id();
-    commands.entity(parent).add_child(e);
-    e
+    commands
+        .spawn_scene(bsn! {
+            { scene }
+            ChildOf(parent)
+        })
+        .id()
 }
 
 pub(crate) fn hud_text(s: &str, size: f32, color: Color) -> impl bevy::scene::prelude::Scene {
