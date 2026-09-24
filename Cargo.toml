@@ -55,8 +55,8 @@ path = "examples/gamepad.rs"
 required-features = []
 
 [[example]]
-name = "fps"
-path = "examples/fps.rs"
+name = "hello"
+path = "examples/hello.rs"
 required-features = ["editor"]
 
 [[example]]

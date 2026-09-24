@@ -11,10 +11,12 @@
 
 struct WedgeParams {
     color: vec4<f32>,
+    border_color: vec4<f32>,
     inner_r: f32,
     outer_r: f32,
     angle_start: f32,
     angle_end: f32,
+    edge_width: f32,
 }
 
 @group(1) @binding(0)
@@ -56,6 +58,17 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
 
     if !inside {
         return vec4<f32>(0.0);
+    }
+
+    // Keep a thin outline around every sector and use the highlight color for
+    // the selected sector's radial and circular borders.
+    let d0 = min(abs(angle - a0), TAU - abs(angle - a0));
+    let d1 = min(abs(angle - a1), TAU - abs(angle - a1));
+    let angular_edge = min(d0, d1) * r <= params.edge_width;
+    let radial_edge = min(abs(r - params.inner_r), abs(r - params.outer_r))
+        <= params.edge_width;
+    if angular_edge || radial_edge {
+        return params.border_color;
     }
 
     return params.color;

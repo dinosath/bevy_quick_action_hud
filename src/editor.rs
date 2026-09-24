@@ -21,6 +21,7 @@ use bevy::feathers::controls::{
 use bevy::feathers::focus::FocusIndicator as FeathersFocusIndicator;
 use bevy::feathers::theme::ThemedText;
 use bevy::input::keyboard::{Key, KeyboardInput};
+use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::input::ButtonState;
 use bevy::prelude::*;
 use bevy::ui::Checked;
@@ -34,6 +35,10 @@ pub enum Selection {
     #[default]
     None,
     Action {
+        set: usize,
+        entry: usize,
+    },
+    HudSwitch {
         set: usize,
         entry: usize,
     },
@@ -65,6 +70,7 @@ pub enum EditFocus {
     None,
     Name,
     Key,
+    HudSwitchKey,
     SetName,
     WheelName,
     SlotName(usize),
@@ -74,6 +80,7 @@ pub enum EditFocus {
     WheelSetName,
     /// Capturing the cycle-key for the selected wheel-set entry.
     WheelSetSwitchKey,
+    WheelSetStick,
     SlotIcon(usize),
     /// Capturing an input binding for a segment (keyboard or gamepad).
     SlotInput(usize),
@@ -89,6 +96,14 @@ pub enum EditFocus {
     NextWheelKey(usize),
     /// Capturing the prev-wheel shortcut for a set.
     PrevWheelKey(usize),
+    WheelSetNextKey {
+        set: usize,
+        entry: usize,
+    },
+    WheelSetPrevKey {
+        set: usize,
+        entry: usize,
+    },
 }
 
 // ─── editor state ────────────────────────────────────────────────────────────────
@@ -112,6 +127,9 @@ pub struct EditorUiState {
     /// When true, `editor_capture_gamepad` skips one frame so that the
     /// South press that activated the capture field is not itself captured.
     pub capture_skip: bool,
+    /// Set when a key/gamepad input was consumed by binding capture. Later
+    /// shortcut systems must ignore that same input for this frame.
+    pub capture_consumed: bool,
     /// Direction currently held for D-Pad nav repeat: -1 = up, 0 = none, 1 = down.
     pub nav_hold_dir: i32,
     /// Seconds the current D-Pad direction has been held.
@@ -135,6 +153,7 @@ impl Default for EditorUiState {
             nav_count: 0,
             scroll_to_focus: false,
             capture_skip: false,
+            capture_consumed: false,
             nav_hold_dir: 0,
             nav_hold_timer: 0.0,
             undo_stack: Vec::new(),
@@ -142,6 +161,24 @@ impl Default for EditorUiState {
             undo_limit: 50,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum MiddleDragTarget {
+    Action {
+        set: usize,
+        entry: usize,
+    },
+    Wheel {
+        set: usize,
+        entry: usize,
+        wheel: Option<usize>,
+    },
+}
+
+#[derive(Resource, Default)]
+struct HudMiddleDrag {
+    target: Option<MiddleDragTarget>,
 }
 
 // ─── components ──────────────────────────────────────────────────────────────────
@@ -206,6 +243,9 @@ pub enum EditorAction {
     AddWheelSet {
         set: usize,
     },
+    AddHudSwitch {
+        set: usize,
+    },
     AddWheelToSet {
         set: usize,
         entry: usize,
@@ -229,6 +269,22 @@ pub enum EditorAction {
     },
     // ── selection ───────────────────────────────────────────────────────────
     SelectAction {
+        set: usize,
+        entry: usize,
+    },
+    SelectHudSwitch {
+        set: usize,
+        entry: usize,
+    },
+    CaptureHudSwitchKey {
+        set: usize,
+        entry: usize,
+    },
+    ClearHudSwitchKey {
+        set: usize,
+        entry: usize,
+    },
+    ToggleHudSwitchEnabled {
         set: usize,
         entry: usize,
     },
@@ -262,6 +318,19 @@ pub enum EditorAction {
         set: usize,
         entry: usize,
     },
+    CycleHoldCommand {
+        set: usize,
+        entry: usize,
+    },
+    CycleSlotCommand {
+        slot: usize,
+    },
+    CycleSlotHoldCommand {
+        slot: usize,
+    },
+    ToggleSlotHold {
+        slot: usize,
+    },
     ToggleHold {
         set: usize,
         entry: usize,
@@ -285,6 +354,11 @@ pub enum EditorAction {
         delta: f32,
     },
     ActionWidthDelta {
+        set: usize,
+        entry: usize,
+        delta: f32,
+    },
+    ActionRotationDelta {
         set: usize,
         entry: usize,
         delta: f32,
@@ -329,6 +403,48 @@ pub enum EditorAction {
         set: usize,
         entry: usize,
     },
+    CaptureWheelSetStick {
+        set: usize,
+        entry: usize,
+    },
+    CaptureWheelSetNextKey {
+        set: usize,
+        entry: usize,
+    },
+    CaptureWheelSetPrevKey {
+        set: usize,
+        entry: usize,
+    },
+    ClearWheelSetNextKey {
+        set: usize,
+        entry: usize,
+    },
+    ClearWheelSetPrevKey {
+        set: usize,
+        entry: usize,
+    },
+    WheelSetMinDelta {
+        set: usize,
+        entry: usize,
+        delta: i32,
+    },
+    WheelSetMaxDelta {
+        set: usize,
+        entry: usize,
+        delta: i32,
+    },
+    ToggleWheelSetCycle {
+        set: usize,
+        entry: usize,
+    },
+    SwitchWheelPrev {
+        set: usize,
+        entry: usize,
+    },
+    SwitchWheelNext {
+        set: usize,
+        entry: usize,
+    },
     // ── set-switch shortcuts ─────────────────────────────────────────────────
     CaptureNextSetKey,
     CapturePrevSetKey,
@@ -339,6 +455,13 @@ pub enum EditorAction {
     ToggleShowSetBar,
     /// Toggle `QuickActionConfig::cycle_sets`.
     ToggleCycleSets,
+    ToggleSetEnabled {
+        set: usize,
+    },
+    CycleHudSwitchTarget {
+        set: usize,
+        entry: usize,
+    },
     /// Begin capturing the global edit-sidebar shortcut.
     CaptureEditShortcut,
     CycleHudOpenMode,
@@ -432,6 +555,10 @@ pub enum EditorAction {
         set: usize,
         entry: usize,
     },
+    ClearWheelSetStick {
+        set: usize,
+        entry: usize,
+    },
     /// Clear the key binding for action entry `entry` in set `set`.
     ClearActionKey {
         set: usize,
@@ -506,6 +633,39 @@ fn on_editor_value_change_bool(
     }
 }
 
+fn active_edit_wheel(
+    cfg: &QuickActionConfig,
+    hud: &WheelHudState,
+) -> Option<(usize, usize, Option<usize>, usize)> {
+    let set = cfg.sets.get(hud.active_set)?;
+    let mut wheel_index = 0;
+    for (entry, value) in set.entries.iter().enumerate() {
+        match value {
+            SetEntry::Wheel(w) => {
+                if wheel_index == hud.active_wheel_entry {
+                    return Some((hud.active_set, entry, None, w.slots.len()));
+                }
+                wheel_index += 1;
+            }
+            SetEntry::WheelSet(ws) => {
+                if wheel_index == hud.active_wheel_entry {
+                    let active = hud
+                        .active_wheel_index
+                        .min(ws.wheels.len().saturating_sub(1));
+                    return ws
+                        .wheels
+                        .get(active)
+                        .map(|w| (hud.active_set, entry, Some(active), w.slots.len()));
+                }
+                wheel_index += 1;
+            }
+            SetEntry::Action(_) => {}
+            SetEntry::HudSwitch(_) => {}
+        }
+    }
+    None
+}
+
 /// Gamepad D-pad + button navigation for the editor sidebar.
 fn editor_gamepad_nav(
     gamepads: Query<&Gamepad>,
@@ -521,7 +681,7 @@ fn editor_gamepad_nav(
     /// Seconds between each repeated step once repeating.
     const HOLD_REPEAT: f32 = 0.7;
 
-    if !hud.editor_open || ui.editing != EditFocus::None {
+    if ui.capture_consumed || !hud.editor_open || ui.editing != EditFocus::None {
         ui.nav_hold_dir = 0;
         ui.nav_hold_timer = 0.0;
         return;
@@ -529,6 +689,195 @@ fn editor_gamepad_nav(
     let Some(gamepad) = gamepads.iter().next() else {
         return;
     };
+
+    // In wheel edit mode, left/right cycles the radial edit targets and South
+    // activates the selected target. This keeps the radial controls usable
+    // without leaving the wheel for the sidebar.
+    if hud.highlighted.is_none() {
+        let toolbar_focus = if gamepad.just_pressed(GamepadButton::DPadLeft) {
+            Some(match hud.edit_control_focus {
+                Some(9) => 8,
+                Some(10) => 9,
+                Some(8) => 11,
+                _ => 8,
+            })
+        } else if gamepad.just_pressed(GamepadButton::DPadRight) {
+            Some(match hud.edit_control_focus {
+                Some(8) => 9,
+                Some(9) => 10,
+                Some(10) => 11,
+                Some(11) => 8,
+                _ => 9,
+            })
+        } else {
+            None
+        };
+        if let Some(focus) = toolbar_focus {
+            hud.edit_control_focus = Some(focus);
+            hud.dirty = true;
+            return;
+        }
+        if gamepad.just_pressed(GamepadButton::DPadUp)
+            || gamepad.just_pressed(GamepadButton::DPadDown)
+        {
+            if let Some((set, entry, wheel, count)) = active_edit_wheel(&cfg, &hud) {
+                if count > 0 {
+                    ui.selection = Selection::Segment {
+                        set,
+                        entry,
+                        wheel,
+                        slot: 0,
+                    };
+                    hud.highlighted = Some((set, entry, wheel, 0));
+                    hud.edit_control_focus = Some(0);
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+            }
+            return;
+        }
+        if gamepad.just_pressed(GamepadButton::South) {
+            match hud.edit_control_focus {
+                Some(8) => save_config(&cfg, &ui.config_path),
+                Some(9) => {
+                    let action = EditorAction::AddAction {
+                        set: hud.active_set,
+                    };
+                    apply_action(&action, &mut cfg, &mut ui, &mut hud);
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                Some(10) => {
+                    hud.settings_open = !hud.settings_open;
+                    hud.dirty = true;
+                }
+                _ => {}
+            }
+            return;
+        }
+    }
+
+    if let Some((set, entry, wheel, slot)) = hud.highlighted {
+        if gamepad.just_pressed(GamepadButton::DPadUp)
+            || gamepad.just_pressed(GamepadButton::DPadDown)
+        {
+            let direction = if gamepad.just_pressed(GamepadButton::DPadDown) {
+                1usize
+            } else {
+                usize::MAX
+            };
+            if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
+                if !w.slots.is_empty() {
+                    let next_slot = if direction == usize::MAX {
+                        if slot == 0 {
+                            w.slots.len() - 1
+                        } else {
+                            slot - 1
+                        }
+                    } else {
+                        (slot + 1) % w.slots.len()
+                    };
+                    ui.selection = Selection::Segment {
+                        set,
+                        entry,
+                        wheel,
+                        slot: next_slot,
+                    };
+                    hud.highlighted = Some((set, entry, wheel, next_slot));
+                    hud.edit_control_focus = Some(0);
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+            }
+            return;
+        }
+        let left = gamepad.just_pressed(GamepadButton::DPadLeft);
+        let right = gamepad.just_pressed(GamepadButton::DPadRight);
+        if hud.edit_control_focus.is_some() && (left || right) {
+            let current = hud.edit_control_focus.unwrap_or(0);
+            let next = if right {
+                (current + 1) % 8
+            } else {
+                (current + 7) % 8
+            };
+            hud.edit_control_focus = Some(next);
+            hud.dirty = true;
+            return;
+        }
+        if gamepad.just_pressed(GamepadButton::South) {
+            match hud.edit_control_focus.unwrap_or(0) {
+                1 | 3 | 4 => {
+                    let side = if hud.edit_control_focus == Some(1) {
+                        SegmentInsertSide::Before
+                    } else {
+                        if hud.edit_control_focus == Some(4) {
+                            SegmentInsertSide::Outer
+                        } else {
+                            SegmentInsertSide::After
+                        }
+                    };
+                    if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
+                        let insert_at = if side == SegmentInsertSide::Before {
+                            slot
+                        } else {
+                            slot.saturating_add(1)
+                        }
+                        .min(w.slots.len());
+                        w.slots.insert(
+                            insert_at,
+                            WheelSlotData::named(format!("Slot {}", insert_at + 1)),
+                        );
+                        ui.selection = Selection::Segment {
+                            set,
+                            entry,
+                            wheel,
+                            slot: insert_at,
+                        };
+                        hud.highlighted = Some((set, entry, wheel, insert_at));
+                        hud.edit_control_focus = Some(0);
+                        hud.dirty = true;
+                        ui.dirty = true;
+                    }
+                }
+                2 => {
+                    if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
+                        if w.slots.len() > 1 && slot < w.slots.len() {
+                            w.slots.remove(slot);
+                            let next_slot = slot.min(w.slots.len() - 1);
+                            ui.selection = Selection::Segment {
+                                set,
+                                entry,
+                                wheel,
+                                slot: next_slot,
+                            };
+                            hud.highlighted = Some((set, entry, wheel, next_slot));
+                            hud.edit_control_focus = Some(0);
+                            hud.dirty = true;
+                            ui.dirty = true;
+                        }
+                    }
+                }
+                5..=7 => {
+                    ui.selection = Selection::Segment {
+                        set,
+                        entry,
+                        wheel,
+                        slot,
+                    };
+                    ui.editing = match hud.edit_control_focus {
+                        Some(5) => EditFocus::SlotName(slot),
+                        Some(6) => EditFocus::SlotIcon(slot),
+                        _ => EditFocus::SlotInput(slot),
+                    };
+                    ui.capture_skip = true;
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                _ => {}
+            }
+            return;
+        }
+    }
 
     // ── D-Pad hold-to-repeat navigation ──────────────────────────────────────
     let down = gamepad.pressed(GamepadButton::DPadDown);
@@ -614,6 +963,135 @@ fn editor_gamepad_nav(
         if ui.selection != sel_before {
             ui.navfocus = 0;
         }
+    }
+}
+
+fn editor_toolbar_shortcuts(
+    keys: Res<ButtonInput<KeyCode>>,
+    gamepads: Query<&Gamepad>,
+    mut cfg: ResMut<QuickActionConfig>,
+    mut hud: ResMut<WheelHudState>,
+    mut ui: ResMut<EditorUiState>,
+) {
+    if !hud.editor_open || ui.editing != EditFocus::None {
+        return;
+    }
+    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
+    let gamepad = gamepads.iter().next();
+    let save = (ctrl && keys.just_pressed(KeyCode::KeyS))
+        || gamepad.is_some_and(|gp| gp.just_pressed(GamepadButton::LeftTrigger));
+    let add = (ctrl && keys.just_pressed(KeyCode::KeyN))
+        || gamepad.is_some_and(|gp| gp.just_pressed(GamepadButton::RightTrigger));
+    let settings = (ctrl && keys.just_pressed(KeyCode::Comma))
+        || gamepad.is_some_and(|gp| gp.just_pressed(GamepadButton::Select));
+    if save {
+        save_config(&cfg, &ui.config_path);
+        hud.edit_control_focus = Some(8);
+        hud.dirty = true;
+    } else if add {
+        let action = EditorAction::AddAction {
+            set: hud.active_set,
+        };
+        apply_action(&action, &mut cfg, &mut ui, &mut hud);
+        hud.edit_control_focus = Some(9);
+        hud.dirty = true;
+        ui.dirty = true;
+    } else if settings {
+        hud.settings_open = !hud.settings_open;
+        hud.edit_control_focus = Some(10);
+        hud.dirty = true;
+    }
+}
+
+/// Keyboard equivalent of the radial edit focus. Arrow keys cycle sector,
+/// add-before, delete, and add-after; Enter/Space activates the target.
+fn editor_keyboard_radial_nav(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut hud: ResMut<WheelHudState>,
+    mut cfg: ResMut<QuickActionConfig>,
+    mut ui: ResMut<EditorUiState>,
+) {
+    if !hud.editor_open || ui.editing != EditFocus::None || hud.highlighted.is_none() {
+        return;
+    }
+    let left = keys.just_pressed(KeyCode::ArrowLeft);
+    let right = keys.just_pressed(KeyCode::ArrowRight);
+    if left || right {
+        let current = hud.edit_control_focus.unwrap_or(0);
+        hud.edit_control_focus = Some(if right {
+            (current + 1) % 8
+        } else {
+            (current + 7) % 8
+        });
+        hud.dirty = true;
+        return;
+    }
+    if !(keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space)) {
+        return;
+    }
+    let Some((set, entry, wheel, slot)) = hud.highlighted else {
+        return;
+    };
+    match hud.edit_control_focus.unwrap_or(0) {
+        1 | 3 | 4 => {
+            let insert_at = if hud.edit_control_focus == Some(1) {
+                slot
+            } else {
+                slot.saturating_add(1)
+            };
+            if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
+                let insert_at = insert_at.min(w.slots.len());
+                w.slots.insert(
+                    insert_at,
+                    WheelSlotData::named(format!("Slot {}", insert_at + 1)),
+                );
+                ui.selection = Selection::Segment {
+                    set,
+                    entry,
+                    wheel,
+                    slot: insert_at,
+                };
+                hud.highlighted = Some((set, entry, wheel, insert_at));
+                hud.edit_control_focus = Some(0);
+                hud.dirty = true;
+                ui.dirty = true;
+            }
+        }
+        5..=7 => {
+            ui.selection = Selection::Segment {
+                set,
+                entry,
+                wheel,
+                slot,
+            };
+            ui.editing = match hud.edit_control_focus {
+                Some(5) => EditFocus::SlotName(slot),
+                Some(6) => EditFocus::SlotIcon(slot),
+                _ => EditFocus::SlotInput(slot),
+            };
+            ui.capture_skip = true;
+            hud.dirty = true;
+            ui.dirty = true;
+        }
+        2 => {
+            if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
+                if w.slots.len() > 1 && slot < w.slots.len() {
+                    w.slots.remove(slot);
+                    let next_slot = slot.min(w.slots.len() - 1);
+                    ui.selection = Selection::Segment {
+                        set,
+                        entry,
+                        wheel,
+                        slot: next_slot,
+                    };
+                    hud.highlighted = Some((set, entry, wheel, next_slot));
+                    hud.edit_control_focus = Some(0);
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -716,6 +1194,7 @@ fn scroll_editor_to_focus(
 /// Called by [`QuickActionHudPlugin`] when `editor: true`.
 pub(crate) fn register_editor_systems(app: &mut App) {
     app.init_resource::<EditorUiState>()
+        .init_resource::<HudMiddleDrag>()
         .init_resource::<ConfigValidation>()
         .add_message::<crate::touch::TouchDragEvent>()
         .add_observer(on_editor_activate)
@@ -723,14 +1202,20 @@ pub(crate) fn register_editor_systems(app: &mut App) {
         .add_systems(
             Update,
             (
-                editor_gamepad_nav,
-                process_hud_buttons,
+                // Capture first so the captured input can be marked consumed
+                // before any normal editor/HUD shortcut system sees it.
                 editor_capture_key,
                 editor_capture_gamepad,
+                editor_toolbar_shortcuts,
+                editor_keyboard_radial_nav,
+                editor_gamepad_nav,
+                click_hud_segments,
+                process_hud_buttons,
                 editor_text_input,
                 apply_set_shortcuts,
                 hud_button_action_shortcuts,
                 hud_wheel_nav,
+                editor_middle_drag,
                 check_edit_shortcut,
                 editor_undo_redo_shortcuts,
                 editor_touch_drag,
@@ -760,26 +1245,27 @@ impl Plugin for QuickActionEditorPlugin {
 
 // ─── palette ─────────────────────────────────────────────────────────────────────
 
-const BG_SIDEBAR: Color = Color::srgb(0.043, 0.055, 0.075);
+const BG_SIDEBAR: Color = Color::srgb(0.075, 0.08, 0.085);
 #[allow(dead_code)]
-const BG_MAIN: Color = Color::srgb(0.055, 0.067, 0.086);
-const SIDEBAR_BORDER: Color = Color::srgb(0.10, 0.12, 0.15);
-const GREEN: Color = Color::srgb(0.30, 0.74, 0.40);
-const GREEN_BG: Color = Color::srgba(0.30, 0.74, 0.40, 0.14);
-const TEXT: Color = Color::srgb(0.74, 0.79, 0.85);
-const DIM: Color = Color::srgb(0.42, 0.47, 0.54);
-const DIMMER: Color = Color::srgb(0.30, 0.34, 0.40);
-const ICON: Color = Color::srgb(0.45, 0.53, 0.61);
-const AMBER: Color = Color::srgb(0.82, 0.66, 0.25);
-const BLUE: Color = Color::srgb(0.38, 0.62, 0.95);
-const TEAL: Color = Color::srgb(0.52, 0.69, 0.75);
-const BADGE_BORDER: Color = Color::srgb(0.26, 0.30, 0.36);
-const ROW_SEL: Color = Color::srgba(0.38, 0.62, 0.95, 0.16);
+const BG_MAIN: Color = Color::srgb(0.105, 0.11, 0.115);
+const SIDEBAR_BORDER: Color = Color::srgb(0.23, 0.24, 0.25);
+const GREEN: Color = Color::srgb(0.62, 0.92, 0.10);
+const GREEN_BG: Color = Color::srgba(0.62, 0.92, 0.10, 0.14);
+const TEXT: Color = Color::srgb(0.91, 0.91, 0.90);
+const DIM: Color = Color::srgb(0.65, 0.65, 0.64);
+const DIMMER: Color = Color::srgb(0.39, 0.40, 0.40);
+const ICON: Color = Color::srgb(0.80, 0.80, 0.78);
+const AMBER: Color = Color::srgb(0.95, 0.54, 0.57);
+const BLUE: Color = Color::srgb(0.23, 0.47, 1.0);
+const TEAL: Color = Color::srgb(0.10, 0.72, 0.63);
+const PURPLE: Color = Color::srgb(0.63, 0.42, 0.95);
+const BADGE_BORDER: Color = Color::srgb(0.34, 0.35, 0.35);
+const ROW_SEL: Color = Color::srgba(0.94, 0.48, 0.52, 0.18);
 #[allow(dead_code)]
 const ROW_HOVER: Color = Color::srgba(1.0, 1.0, 1.0, 0.05);
-const PANEL_CARD: Color = Color::srgb(0.08, 0.10, 0.15);
-const CTRL_BG: Color = Color::srgb(0.11, 0.14, 0.19);
-const GAMEPAD_FOCUS_OUTLINE: Color = Color::srgba(0.50, 0.70, 0.98, 0.90);
+const PANEL_CARD: Color = Color::srgb(0.15, 0.16, 0.16);
+const CTRL_BG: Color = Color::srgb(0.12, 0.13, 0.13);
+const GAMEPAD_FOCUS_OUTLINE: Color = Color::srgba(0.95, 0.54, 0.57, 0.90);
 
 // ─── primitive bsn! helpers ──────────────────────────────────────────────────────
 
@@ -1314,6 +1800,13 @@ fn rebuild_editor(
         commands.entity(e).despawn();
     }
 
+    // Edit mode is now an in-canvas HUD editor. The contextual sector card
+    // is rendered beside the wheel, so no sidebar should be spawned.
+    if hud.editor_open {
+        ui.nav_count = 0;
+        return;
+    }
+
     if hud.editor_open {
         debug!("[editor] building sidebar (focusables will be counted)");
         let icons = Icons {
@@ -1425,6 +1918,81 @@ fn build_sidebar(
                 );
                 let scroll = child(commands, root, tree());
                 spawn_action_editor(commands, scroll, ui, set, entry, qa, icons, &mut focusables);
+                build_footer(commands, root, &ui.config_path, &mut focusables);
+            } else {
+                build_nav_sidebar(commands, root, cfg, ui, hud, set, icons, &mut focusables);
+            }
+            (None, focusables)
+        }
+
+        Selection::HudSwitch { set, entry } => {
+            let hs = cfg
+                .sets
+                .get(set)
+                .and_then(|s| s.entries.get(entry))
+                .and_then(|e| {
+                    if let SetEntry::HudSwitch(hs) = e {
+                        Some(hs)
+                    } else {
+                        None
+                    }
+                });
+            if let Some(hs) = hs {
+                let set_name = cfg.sets.get(set).map(|s| s.name.as_str()).unwrap_or("Set");
+                build_editor_header(
+                    commands,
+                    root,
+                    Some(set_name),
+                    &hs.name,
+                    EditorAction::NavBack,
+                    icons,
+                    &mut focusables,
+                );
+                let scroll = child(commands, root, tree());
+                section_label(commands, scroll, "HUD SWITCH");
+                let card = child(commands, scroll, editor_card());
+                let kf = ui.editing == EditFocus::HudSwitchKey;
+                let (kd, kc) = key_display(kf, &hs.key);
+                let kb = spawn_key_capture_field(
+                    commands,
+                    card,
+                    "Switch key",
+                    &kd,
+                    kc,
+                    if kf { AMBER } else { BADGE_BORDER },
+                    EditorAction::CaptureHudSwitchKey { set, entry },
+                    EditorAction::ClearHudSwitchKey { set, entry },
+                    &hs.key,
+                    kf,
+                    icons,
+                    &mut focusables,
+                );
+                focusables.push(kb);
+                let target = spawn_box_field(
+                    commands,
+                    card,
+                    "Target page",
+                    &format!(
+                        "{} — {}",
+                        hs.target_page.saturating_add(1),
+                        cfg.sets
+                            .get(hs.target_page)
+                            .map(|s| s.name.as_str())
+                            .unwrap_or("missing")
+                    ),
+                    TEXT,
+                    BADGE_BORDER,
+                    EditorAction::CycleHudSwitchTarget { set, entry },
+                );
+                focusables.push(target);
+                spawn_toggle_field(
+                    commands,
+                    card,
+                    "Enabled",
+                    hs.enabled,
+                    EditorAction::ToggleHudSwitchEnabled { set, entry },
+                    &mut focusables,
+                );
                 build_footer(commands, root, &ui.config_path, &mut focusables);
             } else {
                 build_nav_sidebar(commands, root, cfg, ui, hud, set, icons, &mut focusables);
@@ -1798,54 +2366,34 @@ fn build_nav_sidebar(
         focusables.push(bg_op_dec);
         focusables.push(bg_op_inc);
 
-        // Next wheel shortcut
-        let nwf = ui.editing == EditFocus::NextWheelKey(si);
-        let (nwd, nwc) = key_display(nwf, &set.next_wheel_key);
-        let nw_btn = spawn_key_capture_field(
-            commands,
-            cfg_card,
-            "Next wheel",
-            &nwd,
-            nwc,
-            if nwf { AMBER } else { BADGE_BORDER },
-            EditorAction::CaptureNextWheelKey { set: si },
-            EditorAction::ClearNextWheelKey { set: si },
-            &set.next_wheel_key,
-            nwf,
-            icons,
-            focusables,
-        );
-        focusables.push(nw_btn);
-
-        // Prev wheel shortcut
-        let pwf = ui.editing == EditFocus::PrevWheelKey(si);
-        let (pwd, pwc) = key_display(pwf, &set.prev_wheel_key);
-        let pw_btn = spawn_key_capture_field(
-            commands,
-            cfg_card,
-            "Prev wheel",
-            &pwd,
-            pwc,
-            if pwf { AMBER } else { BADGE_BORDER },
-            EditorAction::CapturePrevWheelKey { set: si },
-            EditorAction::ClearPrevWheelKey { set: si },
-            &set.prev_wheel_key,
-            pwf,
-            icons,
-            focusables,
-        );
-        focusables.push(pw_btn);
-
-        // Cycle wheels toggle
-        spawn_toggle_field(
-            commands,
-            cfg_card,
-            "Cycle wheels",
-            set.cycle_wheels,
-            EditorAction::ToggleCycleWheels { set: si },
-            focusables,
-        );
         // ───────────────────────────────────────────────────────────────────────────
+
+        section_label(commands, scroll, "ADD COMPONENT");
+        let add_card = child(commands, scroll, editor_card());
+        for (label, action, color) in [
+            ("+ Button", EditorAction::AddAction { set: si }, AMBER),
+            ("+ Wheel", EditorAction::AddWheel { set: si }, BLUE),
+            ("+ Wheel set", EditorAction::AddWheelSet { set: si }, TEAL),
+            (
+                "+ HUD switch",
+                EditorAction::AddHudSwitch { set: si },
+                PURPLE,
+            ),
+        ] {
+            let b = clickable(
+                commands,
+                add_card,
+                bsn! {
+                    @FeathersButton { @variant: ButtonVariant::Plain }
+                    Node { height: {px(24.)}, padding: {UiRect::horizontal(px(6.))}, border: {UiRect::all(px(1.))}, border_radius: {BorderRadius::all(px(3.))} }
+                    BorderColor::all(color)
+                },
+                action,
+                Color::NONE,
+            );
+            child(commands, b, text(label, 10., color));
+            focusables.push(b);
+        }
 
         build_nav_wheel_section(commands, scroll, ui, set, si, icons, focusables);
         build_nav_button_section(commands, scroll, ui, set, si, icons, focusables);
@@ -1887,7 +2435,19 @@ fn build_root_sidebar(
         ICON,
         icons,
     );
-    child(commands, header, text("Action Sets", 13., TEXT));
+    child(
+        commands,
+        header,
+        text(
+            &format!(
+                "HUD pages ({}/{})",
+                enabled_hud_pages(cfg).len(),
+                cfg.sets.len()
+            ),
+            13.,
+            TEXT,
+        ),
+    );
     let btn_row = child(commands, header, hcluster());
     let add_btn = clickable(
         commands,
@@ -1970,6 +2530,14 @@ fn build_root_sidebar(
         child(commands, name_btn, text(&set.name, 11., TEXT));
         cil_icon(commands, name_btn, "cil-chevron-right", 10., DIMMER, icons);
         focusables.push(name_btn);
+        spawn_toggle_field(
+            commands,
+            row,
+            "",
+            set.enabled,
+            EditorAction::ToggleSetEnabled { set: si },
+            focusables,
+        );
         let dx = clickable(
             commands,
             row,
@@ -2389,6 +2957,27 @@ fn build_nav_button_section(
                 icons,
                 focusables,
             );
+        } else if let SetEntry::HudSwitch(hs) = entry {
+            has_any = true;
+            let badge = if hs.key.is_empty() {
+                Badge::None
+            } else {
+                Badge::Key(hs.key.clone())
+            };
+            spawn_entry_row(
+                commands,
+                body,
+                ui.selection == (Selection::HudSwitch { set: si, entry: ei }),
+                EditorAction::SelectHudSwitch { set: si, entry: ei },
+                "⇄",
+                PURPLE,
+                &hs.name,
+                PURPLE,
+                badge,
+                Some(EditorAction::DeleteEntry { set: si, entry: ei }),
+                icons,
+                focusables,
+            );
         }
     }
     if !has_any {
@@ -2465,14 +3054,54 @@ fn process_hud_buttons(
     buttons: Query<(&WheelHudButton, &Interaction), Changed<Interaction>>,
     mut hud: ResMut<WheelHudState>,
     mut ui: ResMut<EditorUiState>,
-    qcfg: Res<QuickActionConfig>,
+    mut qcfg: ResMut<QuickActionConfig>,
 ) {
     for (btn, interaction) in &buttons {
+        debug!(
+            "[ui] hud button interaction: {:?} -> {:?}",
+            btn.action, interaction
+        );
+        if let Some(owner) = crate::hud_control_owner(&btn.action) {
+            match interaction {
+                Interaction::Hovered => set_hover_owner(&mut hud, owner),
+                Interaction::None => clear_hover_owner(&mut hud, owner),
+                Interaction::Pressed => {}
+            }
+        }
+        match (&btn.action, interaction) {
+            (WheelHudAction::SelectAction { set, entry }, Interaction::Hovered) => {
+                hud.hovered_action = Some((*set, *entry));
+            }
+            (WheelHudAction::SelectAction { set, entry }, Interaction::None)
+                if hud.hovered_action == Some((*set, *entry)) =>
+            {
+                hud.hovered_action = None;
+            }
+            (WheelHudAction::SelectWheel { set, entry, wheel }, Interaction::Hovered) => {
+                hud.hovered_wheel = Some((*set, *entry, *wheel));
+            }
+            (WheelHudAction::SelectWheel { set, entry, wheel }, Interaction::None)
+                if hud.hovered_wheel == Some((*set, *entry, *wheel)) =>
+            {
+                hud.hovered_wheel = None;
+            }
+            (WheelHudAction::SelectHudSwitch { set, entry }, Interaction::Hovered) => {
+                hud.hovered_hud_switch = Some((*set, *entry));
+            }
+            (WheelHudAction::SelectHudSwitch { set, entry }, Interaction::None)
+                if hud.hovered_hud_switch == Some((*set, *entry)) =>
+            {
+                hud.hovered_hud_switch = None;
+            }
+            _ => {}
+        }
         if *interaction == Interaction::Pressed {
+            debug!("[ui] hud button pressed: {:?}", btn.action);
             match &btn.action {
                 WheelHudAction::SetActiveSet(i) => {
                     hud.active_set = *i;
                     hud.active_wheel_entry = 0;
+                    hud.active_wheel_index = 0;
                     hud.dirty = true;
                     ui.dirty = true;
                 }
@@ -2483,6 +3112,7 @@ fn process_hud_buttons(
                         hud.active_set = qcfg.sets.len() - 1;
                     }
                     hud.active_wheel_entry = 0;
+                    hud.active_wheel_index = 0;
                     hud.dirty = true;
                     ui.dirty = true;
                 }
@@ -2494,11 +3124,13 @@ fn process_hud_buttons(
                         hud.active_set = 0;
                     }
                     hud.active_wheel_entry = 0;
+                    hud.active_wheel_index = 0;
                     hud.dirty = true;
                     ui.dirty = true;
                 }
                 WheelHudAction::ToggleEditor => {
                     hud.editor_open = !hud.editor_open;
+                    hud.edit_control_focus = if hud.editor_open { Some(0) } else { None };
                     info!(
                         "[editor] ToggleEditor button — editor_open now={}",
                         hud.editor_open
@@ -2506,11 +3138,689 @@ fn process_hud_buttons(
                     if !hud.editor_open {
                         ui.selection = Selection::None;
                         ui.editing = EditFocus::None;
+                        hud.settings_open = false;
+                        hud.selected_action = None;
+                        hud.selected_wheel = None;
+                        hud.selected_hud_switch = None;
+                        hud.hovered_action = None;
+                        hud.hovered_wheel = None;
+                        hud.hovered_hud_switch = None;
                     }
                     hud.dirty = true;
                     ui.dirty = true;
                 }
+                WheelHudAction::AddSegment {
+                    set,
+                    entry,
+                    wheel,
+                    side,
+                } => {
+                    if let Some(w) = wheel_at(
+                        &mut qcfg,
+                        Selection::Wheel {
+                            set: *set,
+                            entry: *entry,
+                            wheel: *wheel,
+                        },
+                    ) {
+                        let slot = match side {
+                            SegmentInsertSide::Before => {
+                                let insert_at = match ui.selection {
+                                    Selection::Segment { slot, .. } => slot,
+                                    _ => w.slots.len(),
+                                }
+                                .min(w.slots.len());
+                                w.slots.insert(
+                                    insert_at,
+                                    WheelSlotData::named(format!("Slot {}", insert_at + 1)),
+                                );
+                                insert_at
+                            }
+                            SegmentInsertSide::After | SegmentInsertSide::Outer => {
+                                let insert_at = match ui.selection {
+                                    Selection::Segment { slot, .. } => slot.saturating_add(1),
+                                    _ => w.slots.len(),
+                                }
+                                .min(w.slots.len());
+                                w.slots.insert(
+                                    insert_at,
+                                    WheelSlotData::named(format!("Slot {}", insert_at + 1)),
+                                );
+                                insert_at
+                            }
+                        };
+                        ui.selection = Selection::Segment {
+                            set: *set,
+                            entry: *entry,
+                            wheel: *wheel,
+                            slot,
+                        };
+                        hud.highlighted = Some((*set, *entry, *wheel, slot));
+                        hud.dirty = true;
+                        ui.dirty = true;
+                    }
+                }
+                WheelHudAction::RemoveSegment {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    if let Some(w) = wheel_at(
+                        &mut qcfg,
+                        Selection::Wheel {
+                            set: *set,
+                            entry: *entry,
+                            wheel: *wheel,
+                        },
+                    ) {
+                        if w.slots.len() > 1 && *slot < w.slots.len() {
+                            w.slots.remove(*slot);
+                            let next_slot = (*slot).min(w.slots.len() - 1);
+                            ui.selection = Selection::Segment {
+                                set: *set,
+                                entry: *entry,
+                                wheel: *wheel,
+                                slot: next_slot,
+                            };
+                            hud.highlighted = Some((*set, *entry, *wheel, next_slot));
+                            hud.dirty = true;
+                            ui.dirty = true;
+                        }
+                    }
+                }
+                WheelHudAction::EditSegmentName {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    ui.selection = Selection::Segment {
+                        set: *set,
+                        entry: *entry,
+                        wheel: *wheel,
+                        slot: *slot,
+                    };
+                    hud.selected_action = None;
+                    hud.selected_wheel = None;
+                    hud.selected_hud_switch = None;
+                    ui.editing = EditFocus::SlotName(*slot);
+                    hud.highlighted = Some((*set, *entry, *wheel, *slot));
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::EditSegmentIcon {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    ui.selection = Selection::Segment {
+                        set: *set,
+                        entry: *entry,
+                        wheel: *wheel,
+                        slot: *slot,
+                    };
+                    hud.selected_action = None;
+                    hud.selected_wheel = None;
+                    hud.selected_hud_switch = None;
+                    ui.editing = EditFocus::SlotIcon(*slot);
+                    hud.highlighted = Some((*set, *entry, *wheel, *slot));
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::EditSegmentInput {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    ui.selection = Selection::Segment {
+                        set: *set,
+                        entry: *entry,
+                        wheel: *wheel,
+                        slot: *slot,
+                    };
+                    hud.selected_action = None;
+                    hud.selected_wheel = None;
+                    hud.selected_hud_switch = None;
+                    ui.editing = EditFocus::SlotInput(*slot);
+                    hud.highlighted = Some((*set, *entry, *wheel, *slot));
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::CycleSegmentMapping {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    const COMMANDS: &[&str] = &[
+                        "none", "use", "equip", "attack", "interact", "dash", "jump", "crouch",
+                    ];
+                    if let Some(w) = wheel_at(
+                        &mut qcfg,
+                        Selection::Wheel {
+                            set: *set,
+                            entry: *entry,
+                            wheel: *wheel,
+                        },
+                    ) {
+                        if let Some(s) = w.slots.get_mut(*slot) {
+                            s.command = cycle_palette(COMMANDS, &s.command).into();
+                        }
+                    }
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ToggleSegmentHold {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    if let Some(w) = wheel_at(
+                        &mut qcfg,
+                        Selection::Wheel {
+                            set: *set,
+                            entry: *entry,
+                            wheel: *wheel,
+                        },
+                    ) {
+                        if let Some(s) = w.slots.get_mut(*slot) {
+                            s.hold = !s.hold;
+                        }
+                    }
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::CycleSegmentHoldAction {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    const COMMANDS: &[&str] = &[
+                        "none", "use", "equip", "attack", "interact", "dash", "jump", "crouch",
+                    ];
+                    if let Some(w) = wheel_at(
+                        &mut qcfg,
+                        Selection::Wheel {
+                            set: *set,
+                            entry: *entry,
+                            wheel: *wheel,
+                        },
+                    ) {
+                        if let Some(s) = w.slots.get_mut(*slot) {
+                            s.hold_command = cycle_palette(COMMANDS, &s.hold_command).into();
+                        }
+                    }
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ToggleSegmentCloseOnApply {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    if let Some(w) = wheel_at(
+                        &mut qcfg,
+                        Selection::Wheel {
+                            set: *set,
+                            entry: *entry,
+                            wheel: *wheel,
+                        },
+                    ) {
+                        if let Some(s) = w.slots.get_mut(*slot) {
+                            s.close_on_select = !s.close_on_select;
+                        }
+                    }
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::DeleteSegment {
+                    set,
+                    entry,
+                    wheel,
+                    slot,
+                } => {
+                    if let Some(w) = wheel_at(
+                        &mut qcfg,
+                        Selection::Wheel {
+                            set: *set,
+                            entry: *entry,
+                            wheel: *wheel,
+                        },
+                    ) {
+                        if w.slots.len() > 1 && *slot < w.slots.len() {
+                            w.slots.remove(*slot);
+                        }
+                    }
+                    ui.selection = Selection::None;
+                    hud.highlighted = None;
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::SaveConfig => {
+                    save_config(&qcfg, &ui.config_path);
+                }
+                WheelHudAction::AddNewButton => {
+                    let action = EditorAction::AddAction {
+                        set: hud.active_set,
+                    };
+                    apply_action(&action, &mut qcfg, &mut ui, &mut hud);
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ToggleSettings => {
+                    hud.settings_open = !hud.settings_open;
+                    if hud.settings_open {
+                        hud.highlighted = None;
+                        hud.selected_action = None;
+                        hud.selected_wheel = None;
+                        hud.selected_hud_switch = None;
+                        hud.hovered_action = None;
+                        hud.hovered_wheel = None;
+                        hud.hovered_hud_switch = None;
+                        ui.selection = Selection::None;
+                        ui.editing = EditFocus::None;
+                    }
+                    hud.dirty = true;
+                }
+                WheelHudAction::SelectAction { set, entry } => {
+                    hud.selected_action = Some((*set, *entry));
+                    hud.selected_wheel = None;
+                    hud.selected_hud_switch = None;
+                    hud.highlighted = None;
+                    ui.selection = Selection::Action {
+                        set: *set,
+                        entry: *entry,
+                    };
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::SelectHudSwitch { set, entry }
+                | WheelHudAction::MoveHudSwitch { set, entry }
+                | WheelHudAction::EditHudSwitch { set, entry } => {
+                    hud.selected_action = None;
+                    hud.selected_wheel = None;
+                    hud.selected_hud_switch = Some((*set, *entry));
+                    hud.highlighted = None;
+                    ui.selection = Selection::HudSwitch {
+                        set: *set,
+                        entry: *entry,
+                    };
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::DeleteHudSwitch { set, entry } => {
+                    apply_action(
+                        &EditorAction::DeleteEntry {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.selected_action = None;
+                    hud.selected_wheel = None;
+                    hud.selected_hud_switch = None;
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ResizeHudSwitch { set, entry, delta } => {
+                    if let Some(SetEntry::HudSwitch(hs)) = qcfg
+                        .sets
+                        .get_mut(*set)
+                        .and_then(|s| s.entries.get_mut(*entry))
+                    {
+                        hs.width = (hs.width + *delta).clamp(40.0, 300.0);
+                        hs.height = (hs.height + *delta * 0.25).clamp(20.0, 120.0);
+                    }
+                    ui.selection = Selection::HudSwitch {
+                        set: *set,
+                        entry: *entry,
+                    };
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::DeleteAction { set, entry } => {
+                    apply_action(
+                        &EditorAction::DeleteEntry {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.selected_action = None;
+                    hud.selected_wheel = None;
+                    hud.highlighted = None;
+                    hud.edit_control_focus = None;
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::MoveAction { set, entry }
+                | WheelHudAction::EditAction { set, entry } => {
+                    hud.selected_action = Some((*set, *entry));
+                    hud.selected_wheel = None;
+                    hud.highlighted = None;
+                    ui.selection = Selection::Action {
+                        set: *set,
+                        entry: *entry,
+                    };
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::EditActionName { set, entry } => {
+                    apply_action(
+                        &EditorAction::EditName {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.selected_action = Some((*set, *entry));
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::CaptureActionKey { set, entry } => {
+                    apply_action(
+                        &EditorAction::CaptureKey {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.selected_action = Some((*set, *entry));
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::CycleActionIcon { set, entry } => {
+                    apply_action(
+                        &EditorAction::CycleIcon {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::CycleActionMapping { set, entry } => {
+                    apply_action(
+                        &EditorAction::CycleCommand {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ToggleActionHold { set, entry } => {
+                    apply_action(
+                        &EditorAction::ToggleHold {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::CycleHoldAction { set, entry } => {
+                    apply_action(
+                        &EditorAction::CycleHoldCommand {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ToggleActionCloseOnApply { set, entry } => {
+                    apply_action(
+                        &EditorAction::ToggleActionCloseOnSelect {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::WheelSettings { set, entry, wheel }
+                | WheelHudAction::MoveWheel { set, entry, wheel }
+                | WheelHudAction::SelectWheel { set, entry, wheel } => {
+                    hud.selected_wheel = Some((*set, *entry, *wheel));
+                    hud.selected_action = None;
+                    hud.selected_hud_switch = None;
+                    hud.highlighted = None;
+                    ui.selection = Selection::Wheel {
+                        set: *set,
+                        entry: *entry,
+                        wheel: *wheel,
+                    };
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ResizeWheel {
+                    set,
+                    entry,
+                    wheel,
+                    delta,
+                } => {
+                    ui.selection = Selection::Wheel {
+                        set: *set,
+                        entry: *entry,
+                        wheel: *wheel,
+                    };
+                    apply_action(
+                        &EditorAction::WheelOuterRadiusDelta { delta: *delta },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.selected_wheel = Some((*set, *entry, *wheel));
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::DeleteWheel { set, entry, wheel } => {
+                    // A wheel set is one HUD component. Deleting its visible
+                    // wheel removes the owning component, rather than only a
+                    // sector wheel from the shared set.
+                    let _ = wheel;
+                    let editor_action = EditorAction::DeleteEntry {
+                        set: *set,
+                        entry: *entry,
+                    };
+                    apply_action(&editor_action, &mut qcfg, &mut ui, &mut hud);
+                    hud.selected_wheel = None;
+                    hud.highlighted = None;
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::RotateAction { set, entry, delta } => {
+                    apply_action(
+                        &EditorAction::ActionRotationDelta {
+                            set: *set,
+                            entry: *entry,
+                            delta: *delta,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.selected_action = Some((*set, *entry));
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ActionWidthDelta { set, entry, delta } => {
+                    apply_action(
+                        &EditorAction::ActionWidthDelta {
+                            set: *set,
+                            entry: *entry,
+                            delta: *delta,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ActionHeightDelta { set, entry, delta } => {
+                    apply_action(
+                        &EditorAction::ActionHeightDelta {
+                            set: *set,
+                            entry: *entry,
+                            delta: *delta,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::ActionRadiusDelta { set, entry, delta } => {
+                    apply_action(
+                        &EditorAction::RadiusDelta {
+                            set: *set,
+                            entry: *entry,
+                            delta: *delta,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::CycleActionPosition { set, entry } => {
+                    apply_action(
+                        &EditorAction::CyclePosition {
+                            set: *set,
+                            entry: *entry,
+                        },
+                        &mut qcfg,
+                        &mut ui,
+                        &mut hud,
+                    );
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
+                WheelHudAction::CloseSelection => {
+                    hud.highlighted = None;
+                    hud.selected_action = None;
+                    hud.selected_wheel = None;
+                    hud.edit_control_focus = None;
+                    ui.selection = Selection::None;
+                    ui.editing = EditFocus::None;
+                    hud.dirty = true;
+                    ui.dirty = true;
+                }
             }
+        }
+    }
+}
+
+fn set_hover_owner(hud: &mut WheelHudState, owner: HudControlOwner) {
+    match owner {
+        HudControlOwner::Action(set, entry) => hud.hovered_action = Some((set, entry)),
+        HudControlOwner::Wheel(set, entry, wheel) => hud.hovered_wheel = Some((set, entry, wheel)),
+        HudControlOwner::HudSwitch(set, entry) => hud.hovered_hud_switch = Some((set, entry)),
+    }
+}
+
+fn clear_hover_owner(hud: &mut WheelHudState, owner: HudControlOwner) {
+    match owner {
+        HudControlOwner::Action(set, entry) if hud.hovered_action == Some((set, entry)) => {
+            hud.hovered_action = None
+        }
+        HudControlOwner::Wheel(set, entry, wheel)
+            if hud.hovered_wheel == Some((set, entry, wheel)) =>
+        {
+            hud.hovered_wheel = None
+        }
+        HudControlOwner::HudSwitch(set, entry) if hud.hovered_hud_switch == Some((set, entry)) => {
+            hud.hovered_hud_switch = None
+        }
+        _ => {}
+    }
+}
+
+fn click_hud_segments(
+    segments: Query<(&WheelHudSegmentHit, &Interaction), Changed<Interaction>>,
+    mut hud: ResMut<WheelHudState>,
+    mut ui: ResMut<EditorUiState>,
+) {
+    if !hud.editor_open {
+        return;
+    }
+    for (segment, interaction) in &segments {
+        debug!(
+            "[ui] wheel segment interaction: set={} entry={} wheel={:?} slot={} -> {:?}",
+            segment.set, segment.entry, segment.wheel, segment.slot, interaction
+        );
+        let id = (segment.set, segment.entry, segment.wheel, segment.slot);
+        if *interaction == Interaction::Hovered {
+            hud.mouse_hovered_segment = Some(id);
+            hud.highlighted = Some(id);
+            hud.hovered_wheel = Some((segment.set, segment.entry, segment.wheel));
+            hud.selected_action = None;
+            hud.selected_wheel = None;
+            hud.edit_control_focus = Some(0);
+        } else if *interaction == Interaction::None && hud.mouse_hovered_segment == Some(id) {
+            hud.mouse_hovered_segment = None;
+            if hud.hovered_wheel == Some((segment.set, segment.entry, segment.wheel)) {
+                hud.hovered_wheel = None;
+            }
+            if !matches!(
+                ui.selection,
+                Selection::Segment {
+                    set,
+                    entry,
+                    wheel,
+                    slot
+                } if (set, entry, wheel, slot) == id
+            ) {
+                hud.highlighted = None;
+                hud.edit_control_focus = None;
+            }
+        } else if *interaction == Interaction::Pressed {
+            hud.mouse_hovered_segment = None;
+            hud.highlighted = Some(id);
+            hud.selected_action = None;
+            hud.selected_wheel = None;
+            hud.edit_control_focus = Some(0);
+            ui.selection = Selection::Segment {
+                set: segment.set,
+                entry: segment.entry,
+                wheel: segment.wheel,
+                slot: segment.slot,
+            };
+            hud.dirty = true;
+            ui.dirty = true;
         }
     }
 }
@@ -2571,12 +3881,16 @@ fn maybe_push_undo_snapshot(
 
 // ─── action application ──────────────────────────────────────────────────────────
 
-fn apply_action(
+pub(crate) fn apply_action(
     action: &EditorAction,
     cfg: &mut QuickActionConfig,
     ui: &mut EditorUiState,
     hud: &mut WheelHudState,
 ) {
+    debug!(
+        "[editor] apply action: {:?} selection={:?} editing={:?}",
+        action, ui.selection, ui.editing
+    );
     // Push undo snapshot before mutative actions.
     maybe_push_undo_snapshot(action, cfg, ui);
 
@@ -2586,6 +3900,7 @@ fn apply_action(
             let n = cfg.sets.len() + 1;
             cfg.sets.push(ActionSet {
                 name: format!("Set {}", n),
+                enabled: true,
                 opacity: 1.0,
                 input_override: false,
                 entries: Vec::new(),
@@ -2630,6 +3945,21 @@ fn apply_action(
                 s.opacity = (s.opacity + delta).clamp(0.0, 1.0);
             }
         }
+        EditorAction::ToggleSetEnabled { set } => {
+            if let Some(page) = cfg.sets.get_mut(set) {
+                page.enabled = !page.enabled;
+            }
+            if cfg
+                .sets
+                .get(hud.active_set)
+                .is_some_and(|page| !page.enabled)
+            {
+                if let Some(next) = enabled_hud_pages(cfg).first().copied() {
+                    hud.active_set = next;
+                }
+            }
+            hud.dirty = true;
+        }
         EditorAction::ToggleInputOverride { set } => {
             if let Some(s) = cfg.sets.get_mut(set) {
                 s.input_override = !s.input_override;
@@ -2656,8 +3986,18 @@ fn apply_action(
                 s.entries.push(SetEntry::WheelSet(WheelSetData {
                     name: "New Wheel Set".into(),
                     wheels: vec![WheelData::new("Wheel 1", 6)],
-                    switch_key: String::new(),
                     stick: StickSide::Right,
+                    ..default()
+                }));
+            }
+        }
+        EditorAction::AddHudSwitch { set } => {
+            let target_page = (set + 1).min(cfg.sets.len().saturating_sub(1));
+            if let Some(s) = cfg.sets.get_mut(set) {
+                s.entries.push(SetEntry::HudSwitch(HudSwitch {
+                    name: "HUD Switch".into(),
+                    target_page,
+                    ..default()
                 }));
             }
         }
@@ -2665,8 +4005,12 @@ fn apply_action(
             if let Some(SetEntry::WheelSet(ws)) =
                 cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
             {
-                let n = ws.wheels.len() + 1;
-                ws.wheels.push(WheelData::new(format!("Wheel {}", n), 6));
+                if ws.wheels.len() < ws.max_wheels {
+                    let n = ws.wheels.len() + 1;
+                    let mut wheel = WheelData::new(format!("Wheel {}", n), 6);
+                    wheelset_visuals(ws).apply_to(&mut wheel);
+                    ws.wheels.push(wheel);
+                }
             }
         }
         EditorAction::DeleteEntry { set, entry } => {
@@ -2687,7 +4031,7 @@ fn apply_action(
             if let Some(SetEntry::WheelSet(ws)) =
                 cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
             {
-                if ws.wheels.len() > 1 && wheel < ws.wheels.len() {
+                if ws.wheels.len() > ws.min_wheels && wheel < ws.wheels.len() {
                     ws.wheels.remove(wheel);
                 }
             }
@@ -2759,6 +4103,41 @@ fn apply_action(
             // Sync the active set so the HUD shows the correct context.
             hud.active_set = set;
         }
+        EditorAction::SelectHudSwitch { set, entry } => {
+            ui.selection = Selection::HudSwitch { set, entry };
+            ui.editing = EditFocus::None;
+            hud.active_set = set;
+        }
+        EditorAction::CaptureHudSwitchKey { set, entry } => {
+            ui.selection = Selection::HudSwitch { set, entry };
+            ui.editing = EditFocus::HudSwitchKey;
+        }
+        EditorAction::ClearHudSwitchKey { set, entry } => {
+            if let Some(SetEntry::HudSwitch(hs)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                hs.key.clear();
+            }
+        }
+        EditorAction::ToggleHudSwitchEnabled { set, entry } => {
+            if let Some(SetEntry::HudSwitch(hs)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                hs.enabled = !hs.enabled;
+            }
+        }
+        EditorAction::CycleHudSwitchTarget { set, entry } => {
+            let len = cfg.sets.len();
+            if let Some(SetEntry::HudSwitch(hs)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                hs.target_page = if len == 0 {
+                    0
+                } else {
+                    (hs.target_page + 1) % len
+                };
+            }
+        }
         EditorAction::SelectWheel { set, entry, wheel } => {
             ui.selection = Selection::Wheel { set, entry, wheel };
             ui.editing = EditFocus::None;
@@ -2815,6 +4194,32 @@ fn apply_action(
                 a.command = cycle_palette(COMMAND_PALETTE, &a.command).into();
             }
         }
+        EditorAction::CycleHoldCommand { set, entry } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.hold_command = cycle_palette(COMMAND_PALETTE, &a.hold_command).into();
+            }
+        }
+        EditorAction::CycleSlotCommand { slot } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                if let Some(s) = w.slots.get_mut(slot) {
+                    s.command = cycle_palette(COMMAND_PALETTE, &s.command).into();
+                }
+            }
+        }
+        EditorAction::CycleSlotHoldCommand { slot } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                if let Some(s) = w.slots.get_mut(slot) {
+                    s.hold_command = cycle_palette(COMMAND_PALETTE, &s.hold_command).into();
+                }
+            }
+        }
+        EditorAction::ToggleSlotHold { slot } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                if let Some(s) = w.slots.get_mut(slot) {
+                    s.hold = !s.hold;
+                }
+            }
+        }
         EditorAction::ToggleHold { set, entry } => {
             if let Some(a) = action_at(cfg, set, entry) {
                 a.hold = !a.hold;
@@ -2843,6 +4248,11 @@ fn apply_action(
         EditorAction::ActionWidthDelta { set, entry, delta } => {
             if let Some(a) = action_at(cfg, set, entry) {
                 a.width = (a.width + delta).clamp(20.0, 300.0);
+            }
+        }
+        EditorAction::ActionRotationDelta { set, entry, delta } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.rotation = (a.rotation + delta).rem_euclid(360.0);
             }
         }
         EditorAction::ActionHeightDelta { set, entry, delta } => {
@@ -2914,6 +4324,86 @@ fn apply_action(
             ui.selection = Selection::WheelSetEntry { set, entry };
             ui.editing = EditFocus::WheelSetSwitchKey;
         }
+        EditorAction::CaptureWheelSetStick { set, entry } => {
+            ui.selection = Selection::WheelSetEntry { set, entry };
+            ui.editing = EditFocus::WheelSetStick;
+        }
+        EditorAction::CaptureWheelSetNextKey { set, entry } => {
+            ui.selection = Selection::WheelSetEntry { set, entry };
+            ui.editing = EditFocus::WheelSetNextKey { set, entry };
+        }
+        EditorAction::CaptureWheelSetPrevKey { set, entry } => {
+            ui.selection = Selection::WheelSetEntry { set, entry };
+            ui.editing = EditFocus::WheelSetPrevKey { set, entry };
+        }
+        EditorAction::ClearWheelSetNextKey { set, entry } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                ws.next_wheel_key.clear();
+            }
+        }
+        EditorAction::ClearWheelSetPrevKey { set, entry } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                ws.prev_wheel_key.clear();
+            }
+        }
+        EditorAction::WheelSetMinDelta { set, entry, delta } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                let next = (ws.min_wheels as i32 + delta).clamp(1, ws.max_wheels as i32) as usize;
+                ws.min_wheels = next;
+                normalize_wheelset(ws);
+            }
+        }
+        EditorAction::WheelSetMaxDelta { set, entry, delta } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                ws.max_wheels = (ws.max_wheels as i32 + delta)
+                    .clamp(ws.min_wheels.max(ws.wheels.len()) as i32, 64)
+                    as usize;
+            }
+        }
+        EditorAction::ToggleWheelSetCycle { set, entry } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                ws.cycle_wheels = !ws.cycle_wheels;
+            }
+        }
+        EditorAction::SwitchWheelPrev { set, entry } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get(set).and_then(|s| s.entries.get(entry))
+            {
+                if !ws.wheels.is_empty() {
+                    hud.active_set = set;
+                    hud.active_wheel_entry = wheel_entry_idx(cfg, set, entry);
+                    hud.active_wheel_index = hud
+                        .active_wheel_index
+                        .checked_sub(1)
+                        .unwrap_or(ws.wheels.len() - 1);
+                    hud.highlighted = None;
+                    hud.dirty = true;
+                }
+            }
+        }
+        EditorAction::SwitchWheelNext { set, entry } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get(set).and_then(|s| s.entries.get(entry))
+            {
+                if !ws.wheels.is_empty() {
+                    hud.active_set = set;
+                    hud.active_wheel_entry = wheel_entry_idx(cfg, set, entry);
+                    hud.active_wheel_index = (hud.active_wheel_index + 1) % ws.wheels.len();
+                    hud.highlighted = None;
+                    hud.dirty = true;
+                }
+            }
+        }
         // ── set-switch shortcuts ──────────────────────────────────────────
         EditorAction::CaptureNextSetKey => {
             ui.editing = EditFocus::NextSetKey;
@@ -2952,6 +4442,7 @@ fn apply_action(
             };
             ui.editing = EditFocus::None;
             hud.highlighted = Some((set, entry, wheel, slot));
+            hud.edit_control_focus = Some(0);
             // Sync the HUD to preview the wheel containing this segment.
             hud.active_set = set;
             hud.active_wheel_entry = wheel_entry_idx(cfg, set, entry);
@@ -3077,6 +4568,19 @@ fn apply_action(
                 ws.switch_key.clear();
             }
         }
+        EditorAction::ClearWheelSetStick { set, entry } => {
+            if let Some(SetEntry::WheelSet(ws)) =
+                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+            {
+                ws.stick = StickSide::Right;
+                let mut visuals = wheelset_visuals(ws);
+                visuals.stick = ws.stick;
+                ws.visuals = Some(visuals.clone());
+                for wheel in &mut ws.wheels {
+                    visuals.apply_to(wheel);
+                }
+            }
+        }
         EditorAction::ClearActionKey { set, entry } => {
             if let Some(a) = action_at(cfg, set, entry) {
                 a.key.clear();
@@ -3142,6 +4646,12 @@ fn apply_action(
                     cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
                 {
                     ws.stick = ws.stick.next();
+                    let mut visuals = wheelset_visuals(ws);
+                    visuals.stick = ws.stick;
+                    ws.visuals = Some(visuals.clone());
+                    for wheel in &mut ws.wheels {
+                        visuals.apply_to(wheel);
+                    }
                 }
             }
         }
@@ -3200,6 +4710,7 @@ fn apply_action(
             }
         }
     }
+    sync_wheelset_visuals(cfg, ui.selection);
 }
 
 // ─── persistence ─────────────────────────────────────────────────────────────────
@@ -3226,7 +4737,8 @@ fn load_config(path: &str) -> Option<QuickActionConfig> {
         }
     };
     match ron::from_str(&s) {
-        Ok(c) => {
+        Ok(mut c) => {
+            normalize_wheelset_config(&mut c);
             info!("[editor] loaded from {path}");
             Some(c)
         }
@@ -4176,6 +5688,33 @@ fn spawn_segment_editor(
         focusables,
     );
 
+    spawn_box_field(
+        commands,
+        card,
+        "Action mapping",
+        &slot_data.map(|s| s.command.as_str()).unwrap_or("none"),
+        TEXT,
+        BADGE_BORDER,
+        EditorAction::CycleSlotCommand { slot },
+    );
+    spawn_toggle_field(
+        commands,
+        card,
+        "Hold action",
+        slot_data.map(|s| s.hold).unwrap_or(false),
+        EditorAction::ToggleSlotHold { slot },
+        focusables,
+    );
+    spawn_box_field(
+        commands,
+        card,
+        "Hold mapping",
+        &slot_data.map(|s| s.hold_command.as_str()).unwrap_or("none"),
+        TEXT,
+        BADGE_BORDER,
+        EditorAction::CycleSlotHoldCommand { slot },
+    );
+
     // ── Items section ───────────────────────────────────────────────────────────
     let items_hdr = child(
         commands,
@@ -4340,36 +5879,130 @@ fn spawn_wheelset_entry_editor(
     );
     focusables.push(ws_name_btn);
 
-    // Switch Key
-    let kf = ui.editing == EditFocus::WheelSetSwitchKey;
-    let (kd, kc) = key_display(kf, &ws.switch_key);
-    let switch_key_btn = spawn_key_capture_field(
+    // The navigation stick is captured as a controller thumb-stick binding.
+    let stick_focus = ui.editing == EditFocus::WheelSetStick;
+    let stick_btn = spawn_key_capture_field(
         commands,
         card,
-        "Switch Key",
-        &kd,
-        kc,
-        if kf { AMBER } else { BADGE_BORDER },
-        EditorAction::CaptureWheelSetSwitchKey { set, entry },
-        EditorAction::ClearWheelSetSwitchKey { set, entry },
-        &ws.switch_key,
-        kf,
+        "Stick binding",
+        &format!(
+            "{}{}",
+            if stick_focus { "press stick… " } else { "" },
+            ws.stick.label()
+        ),
+        if stick_focus { AMBER } else { TEXT },
+        if stick_focus { AMBER } else { BADGE_BORDER },
+        EditorAction::CaptureWheelSetStick { set, entry },
+        EditorAction::ClearWheelSetStick { set, entry },
+        ws.stick.label(),
+        stick_focus,
         icons,
         focusables,
     );
-    focusables.push(switch_key_btn);
+    focusables.push(stick_btn);
 
-    // Stick side
-    let stick_btn = spawn_box_field(
+    // Previous wheel shortcut
+    let pkf = ui.editing == EditFocus::WheelSetPrevKey { set, entry };
+    let (pkd, pkc) = key_display(pkf, &ws.prev_wheel_key);
+    let prev_key_btn = spawn_key_capture_field(
         commands,
         card,
-        "Stick",
-        ws.stick.label(),
-        TEXT,
-        BADGE_BORDER,
-        EditorAction::CycleWheelSetStick,
+        "Previous wheel",
+        &pkd,
+        pkc,
+        if pkf { AMBER } else { BADGE_BORDER },
+        EditorAction::CaptureWheelSetPrevKey { set, entry },
+        EditorAction::ClearWheelSetPrevKey { set, entry },
+        &ws.prev_wheel_key,
+        pkf,
+        icons,
+        focusables,
     );
-    focusables.push(stick_btn);
+    focusables.push(prev_key_btn);
+
+    // Next wheel shortcut
+    let nkf = ui.editing == EditFocus::WheelSetNextKey { set, entry };
+    let (nkd, nkc) = key_display(nkf, &ws.next_wheel_key);
+    let next_key_btn = spawn_key_capture_field(
+        commands,
+        card,
+        "Next wheel",
+        &nkd,
+        nkc,
+        if nkf { AMBER } else { BADGE_BORDER },
+        EditorAction::CaptureWheelSetNextKey { set, entry },
+        EditorAction::ClearWheelSetNextKey { set, entry },
+        &ws.next_wheel_key,
+        nkf,
+        icons,
+        focusables,
+    );
+    focusables.push(next_key_btn);
+
+    let (min_dec, min_inc) = spawn_stepper_field(
+        commands,
+        card,
+        "Minimum wheels",
+        &ws.min_wheels.to_string(),
+        EditorAction::WheelSetMinDelta {
+            set,
+            entry,
+            delta: -1,
+        },
+        EditorAction::WheelSetMinDelta {
+            set,
+            entry,
+            delta: 1,
+        },
+        icons,
+    );
+    focusables.push(min_dec);
+    focusables.push(min_inc);
+    let (max_dec, max_inc) = spawn_stepper_field(
+        commands,
+        card,
+        "Maximum wheels",
+        &ws.max_wheels.to_string(),
+        EditorAction::WheelSetMaxDelta {
+            set,
+            entry,
+            delta: -1,
+        },
+        EditorAction::WheelSetMaxDelta {
+            set,
+            entry,
+            delta: 1,
+        },
+        icons,
+    );
+    focusables.push(max_dec);
+    focusables.push(max_inc);
+    spawn_toggle_field(
+        commands,
+        card,
+        "Cycle wheels",
+        ws.cycle_wheels,
+        EditorAction::ToggleWheelSetCycle { set, entry },
+        focusables,
+    );
+
+    let wheel_nav = child(commands, card, hcluster());
+    let prev_wheel = clickable(
+        commands,
+        wheel_nav,
+        footer_button("‹ Previous wheel", DIM, false),
+        EditorAction::SwitchWheelPrev { set, entry },
+        Color::NONE,
+    );
+    let next_wheel = clickable(
+        commands,
+        wheel_nav,
+        footer_button("Next wheel ›", DIM, false),
+        EditorAction::SwitchWheelNext { set, entry },
+        Color::NONE,
+    );
+    focusables.push(prev_wheel);
+    focusables.push(next_wheel);
 
     // Wheels sub-list
     let wh_hdr = child(
@@ -4471,6 +6104,30 @@ fn wheel_at(cfg: &mut QuickActionConfig, sel: Selection) -> Option<&mut WheelDat
         Some(SetEntry::Wheel(w)) if wheel.is_none() => Some(w),
         Some(SetEntry::WheelSet(ws)) => wheel.and_then(move |i| ws.wheels.get_mut(i)),
         _ => None,
+    }
+}
+
+fn sync_wheelset_visuals(cfg: &mut QuickActionConfig, selection: Selection) {
+    let Selection::Wheel {
+        set,
+        entry,
+        wheel: Some(index),
+    } = selection
+    else {
+        return;
+    };
+    let Some(SetEntry::WheelSet(ws)) = cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+    else {
+        return;
+    };
+    let Some(source) = ws.wheels.get(index).cloned() else {
+        return;
+    };
+    let visuals = WheelSetVisuals::from(&source);
+    ws.visuals = Some(visuals.clone());
+    ws.stick = visuals.stick;
+    for wheel in &mut ws.wheels {
+        visuals.apply_to(wheel);
     }
 }
 
@@ -4594,6 +6251,7 @@ fn editor_text_input(
         ui.editing = EditFocus::None;
     }
     if changed {
+        sync_wheelset_visuals(&mut cfg, ui.selection);
         ui.dirty = true;
     }
 }
@@ -4603,6 +6261,9 @@ fn editor_capture_key(
     mut cfg: ResMut<QuickActionConfig>,
     mut ui: ResMut<EditorUiState>,
 ) {
+    // This flag is scoped to one Update frame. The gamepad capture system runs
+    // immediately after this one and may set it when no keyboard key matched.
+    ui.capture_consumed = false;
     let focus = ui.editing;
     if !matches!(
         focus,
@@ -4610,10 +6271,13 @@ fn editor_capture_key(
             | EditFocus::NextSetKey
             | EditFocus::PrevSetKey
             | EditFocus::WheelSetSwitchKey
+            | EditFocus::WheelSetStick
             | EditFocus::SlotInput(_)
             | EditFocus::EditShortcut
             | EditFocus::NextWheelKey(_)
             | EditFocus::PrevWheelKey(_)
+            | EditFocus::WheelSetNextKey { .. }
+            | EditFocus::WheelSetPrevKey { .. }
     ) {
         return;
     }
@@ -4641,6 +6305,29 @@ fn editor_capture_key(
                         }
                     }
                 }
+                EditFocus::WheelSetStick => {
+                    if let Selection::WheelSetEntry { set, entry } = ui.selection {
+                        if let Some(SetEntry::WheelSet(ws)) =
+                            cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                        {
+                            if matches!(*key, KeyCode::KeyL | KeyCode::KeyR) {
+                                ws.stick = if *key == KeyCode::KeyL {
+                                    StickSide::Left
+                                } else {
+                                    StickSide::Right
+                                };
+                                let mut visuals = wheelset_visuals(ws);
+                                visuals.stick = ws.stick;
+                                ws.visuals = Some(visuals.clone());
+                                for wheel in &mut ws.wheels {
+                                    visuals.apply_to(wheel);
+                                }
+                            } else {
+                                continue;
+                            }
+                        }
+                    }
+                }
                 EditFocus::NextSetKey => cfg.next_set_key = label,
                 EditFocus::PrevSetKey => cfg.prev_set_key = label,
                 EditFocus::EditShortcut => cfg.edit_shortcut = label,
@@ -4654,6 +6341,20 @@ fn editor_capture_key(
                         s.prev_wheel_key = label;
                     }
                 }
+                EditFocus::WheelSetNextKey { set, entry } => {
+                    if let Some(SetEntry::WheelSet(ws)) =
+                        cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                    {
+                        ws.next_wheel_key = label;
+                    }
+                }
+                EditFocus::WheelSetPrevKey { set, entry } => {
+                    if let Some(SetEntry::WheelSet(ws)) =
+                        cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                    {
+                        ws.prev_wheel_key = label;
+                    }
+                }
                 EditFocus::SlotInput(slot) => {
                     if let Some(w) = wheel_at(&mut cfg, ui.selection) {
                         if let Some(s) = w.slots.get_mut(slot) {
@@ -4664,6 +6365,7 @@ fn editor_capture_key(
                 _ => {}
             }
         }
+        ui.capture_consumed = true;
         ui.editing = EditFocus::None;
         ui.dirty = true;
         return;
@@ -4684,6 +6386,7 @@ fn editor_capture_gamepad(
             | EditFocus::PrevSetKey
             | EditFocus::EditShortcut
             | EditFocus::WheelSetSwitchKey
+            | EditFocus::WheelSetStick
             | EditFocus::NextWheelKey(_)
             | EditFocus::PrevWheelKey(_)
     ) {
@@ -4735,6 +6438,27 @@ fn editor_capture_gamepad(
                             }
                         }
                     }
+                    EditFocus::WheelSetStick => {
+                        if let Selection::WheelSetEntry { set, entry } = ui.selection {
+                            if let Some(SetEntry::WheelSet(ws)) =
+                                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                            {
+                                ws.stick = if btn == GamepadButton::LeftThumb {
+                                    StickSide::Left
+                                } else if btn == GamepadButton::RightThumb {
+                                    StickSide::Right
+                                } else {
+                                    continue;
+                                };
+                                let mut visuals = wheelset_visuals(ws);
+                                visuals.stick = ws.stick;
+                                ws.visuals = Some(visuals.clone());
+                                for wheel in &mut ws.wheels {
+                                    visuals.apply_to(wheel);
+                                }
+                            }
+                        }
+                    }
                     EditFocus::SlotInput(slot) => {
                         if let Some(w) = wheel_at(&mut cfg, ui.selection) {
                             if let Some(s) = w.slots.get_mut(slot) {
@@ -4755,9 +6479,24 @@ fn editor_capture_gamepad(
                             s.prev_wheel_key = gp;
                         }
                     }
+                    EditFocus::WheelSetNextKey { set, entry } => {
+                        if let Some(SetEntry::WheelSet(ws)) =
+                            cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                        {
+                            ws.next_wheel_key = gp;
+                        }
+                    }
+                    EditFocus::WheelSetPrevKey { set, entry } => {
+                        if let Some(SetEntry::WheelSet(ws)) =
+                            cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                        {
+                            ws.prev_wheel_key = gp;
+                        }
+                    }
                     _ => {}
                 }
                 ui.editing = EditFocus::None;
+                ui.capture_consumed = true;
                 ui.dirty = true;
                 return;
             }
@@ -4862,24 +6601,27 @@ fn apply_set_shortcuts(
 ) {
     // Don't switch sets while the editor sidebar is open — that would be confusing
     // and could conflict with the editor's own DPad navigation.
-    if !hud.open || hud.editor_open || ui.editing != EditFocus::None {
+    if ui.capture_consumed || !hud.open || hud.editor_open || ui.editing != EditFocus::None {
         return;
     }
+    let pages = enabled_hud_pages(&cfg);
+    let Some(pos) = pages.iter().position(|&i| i == hud.active_set) else {
+        return;
+    };
     if shortcut_just_pressed(&cfg.next_set_key, &keys, &gamepads) {
-        let max = cfg.sets.len().saturating_sub(1);
-        if hud.active_set < max {
-            hud.active_set += 1;
+        if let Some(&next) = pages.get(pos + 1) {
+            hud.active_set = next;
         } else if cfg.cycle_sets {
-            hud.active_set = 0;
+            hud.active_set = pages[0];
         }
         hud.active_wheel_entry = 0;
         hud.dirty = true;
     }
     if shortcut_just_pressed(&cfg.prev_set_key, &keys, &gamepads) {
-        if hud.active_set > 0 {
-            hud.active_set -= 1;
-        } else if cfg.cycle_sets && !cfg.sets.is_empty() {
-            hud.active_set = cfg.sets.len() - 1;
+        if pos > 0 {
+            hud.active_set = pages[pos - 1];
+        } else if cfg.cycle_sets {
+            hud.active_set = *pages.last().unwrap_or(&hud.active_set);
         }
         hud.active_wheel_entry = 0;
         hud.dirty = true;
@@ -4899,7 +6641,7 @@ fn hud_button_action_shortcuts(
     mut hud: ResMut<WheelHudState>,
     ui: Res<EditorUiState>,
 ) {
-    if !hud.open || ui.editing != EditFocus::None {
+    if ui.capture_consumed || !hud.open || ui.editing != EditFocus::None {
         return;
     }
     let Some(set) = cfg.sets.get(hud.active_set) else {
@@ -4921,12 +6663,26 @@ fn hud_button_action_shortcuts(
                     hud.dirty = true;
                 }
             }
+        } else if let SetEntry::HudSwitch(hs) = entry {
+            if hs.enabled
+                && !hs.key.is_empty()
+                && shortcut_just_pressed(&hs.key, &keys, &gamepads)
+                && cfg
+                    .sets
+                    .get(hs.target_page)
+                    .is_some_and(|page| page.enabled)
+            {
+                hud.active_set = hs.target_page;
+                hud.active_wheel_entry = 0;
+                hud.active_wheel_index = 0;
+                hud.dirty = true;
+            }
         }
     }
 }
 
-/// Navigates between wheel entries within the active set using the per-set
-/// `next_wheel_key` / `prev_wheel_key` shortcuts.
+/// Navigates between legacy top-level wheel entries or, for the active
+/// `WheelSet`, between that set's internal wheels.
 fn hud_wheel_nav(
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
@@ -4935,35 +6691,97 @@ fn hud_wheel_nav(
     ui: Res<EditorUiState>,
 ) {
     // Don't navigate wheels while the editor is open.
-    if !hud.open || hud.editor_open || ui.editing != EditFocus::None {
+    if ui.capture_consumed || !hud.open || hud.editor_open || ui.editing != EditFocus::None {
         return;
     }
     let Some(set) = cfg.sets.get(hud.active_set) else {
         return;
     };
     let n = count_wheel_entries(set);
-    if n < 2 {
+    if n == 0 {
         return;
     }
     // Clamp in case the set shrank since last frame.
     if hud.active_wheel_entry >= n {
         hud.active_wheel_entry = 0;
+        hud.active_wheel_index = 0;
         hud.dirty = true;
     }
-    if shortcut_just_pressed(&set.next_wheel_key, &keys, &gamepads) {
-        if hud.active_wheel_entry + 1 < n {
-            hud.active_wheel_entry += 1;
-        } else if set.cycle_wheels {
-            hud.active_wheel_entry = 0;
+    let mut wheel_entry = 0usize;
+    let mut switch_config: Option<(&str, &str, bool, usize, bool)> = None;
+    for entry in &set.entries {
+        match entry {
+            SetEntry::Wheel(_) => {
+                if wheel_entry == hud.active_wheel_entry {
+                    // Standalone wheels retain the legacy set-level navigation.
+                    switch_config = Some((
+                        &set.next_wheel_key,
+                        &set.prev_wheel_key,
+                        set.cycle_wheels,
+                        n,
+                        false,
+                    ));
+                    break;
+                }
+                wheel_entry += 1;
+            }
+            SetEntry::WheelSet(ws) => {
+                if wheel_entry == hud.active_wheel_entry {
+                    let next = if ws.next_wheel_key.is_empty() {
+                        &set.next_wheel_key
+                    } else {
+                        &ws.next_wheel_key
+                    };
+                    let prev = if ws.prev_wheel_key.is_empty() {
+                        &set.prev_wheel_key
+                    } else {
+                        &ws.prev_wheel_key
+                    };
+                    // A wheel set's shortcuts switch its internal wheels, not
+                    // unrelated wheel components on the HUD page.
+                    let wheel_count = ws.wheels.len();
+                    switch_config = Some((next, prev, ws.cycle_wheels, wheel_count, true));
+                    break;
+                }
+                wheel_entry += 1;
+            }
+            _ => {}
         }
+    }
+    let Some((next_key, prev_key, cycle_wheels, wheel_count, is_wheelset)) = switch_config else {
+        return;
+    };
+    if wheel_count < 2 {
+        return;
+    }
+    if shortcut_just_pressed(next_key, &keys, &gamepads) {
+        if !is_wheelset {
+            if hud.active_wheel_entry + 1 < n {
+                hud.active_wheel_entry += 1;
+            } else if cycle_wheels {
+                hud.active_wheel_entry = 0;
+            }
+        } else if hud.active_wheel_index + 1 < wheel_count {
+            hud.active_wheel_index += 1;
+        } else if cycle_wheels {
+            hud.active_wheel_index = 0;
+        }
+        hud.highlighted = None;
         hud.dirty = true;
     }
-    if shortcut_just_pressed(&set.prev_wheel_key, &keys, &gamepads) {
-        if hud.active_wheel_entry > 0 {
-            hud.active_wheel_entry -= 1;
-        } else if set.cycle_wheels && n > 0 {
-            hud.active_wheel_entry = n - 1;
+    if shortcut_just_pressed(prev_key, &keys, &gamepads) {
+        if !is_wheelset {
+            if hud.active_wheel_entry > 0 {
+                hud.active_wheel_entry -= 1;
+            } else if cycle_wheels && n > 0 {
+                hud.active_wheel_entry = n - 1;
+            }
+        } else if hud.active_wheel_index > 0 {
+            hud.active_wheel_index -= 1;
+        } else if cycle_wheels {
+            hud.active_wheel_index = wheel_count - 1;
         }
+        hud.highlighted = None;
         hud.dirty = true;
     }
 }
@@ -4976,11 +6794,11 @@ fn editor_undo_redo_shortcuts(
     mut ui: ResMut<EditorUiState>,
     mut hud: ResMut<WheelHudState>,
 ) {
-    if !hud.editor_open {
+    if ui.capture_consumed || !hud.editor_open {
         return;
     }
     // Block while a key capture is in progress.
-    if ui.editing != EditFocus::None {
+    if ui.capture_consumed || ui.editing != EditFocus::None {
         return;
     }
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
@@ -5020,7 +6838,7 @@ fn check_edit_shortcut(
         return;
     }
     // Block while a key/gamepad capture is in progress.
-    if ui.editing != EditFocus::None {
+    if ui.capture_consumed || ui.editing != EditFocus::None {
         debug!(
             "[editor] edit shortcut blocked — capture in progress ({:?})",
             ui.editing
@@ -5035,6 +6853,8 @@ fn check_edit_shortcut(
                 hud.open, hud.editor_open
             );
             hud.editor_open = false;
+            hud.edit_control_focus = None;
+            hud.settings_open = false;
             ui.selection = Selection::None;
             ui.editing = EditFocus::None;
         } else {
@@ -5045,6 +6865,7 @@ fn check_edit_shortcut(
                 hud.open, hud.editor_open
             );
             hud.editor_open = true;
+            hud.edit_control_focus = Some(0);
             if !hud.open {
                 info!("[editor] auto-opening HUD so wheel preview is visible");
                 hud.open = true;
@@ -5052,6 +6873,68 @@ fn check_edit_shortcut(
         }
         hud.dirty = true;
         ui.dirty = true;
+    }
+}
+
+// ─── middle-button HUD dragging ────────────────────────────────────────────────
+
+/// Moves the currently selected HUD item while the middle mouse button is held.
+/// Offsets are stored in the config so the edit survives a HUD rebuild/save.
+fn editor_middle_drag(
+    mouse: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    mut cfg: ResMut<QuickActionConfig>,
+    mut hud: ResMut<WheelHudState>,
+    mut drag: ResMut<HudMiddleDrag>,
+) {
+    if !hud.open || !hud.editor_open {
+        drag.target = None;
+        return;
+    }
+
+    if mouse.just_pressed(MouseButton::Middle) {
+        drag.target = hud
+            .selected_action
+            .map(|(set, entry)| MiddleDragTarget::Action { set, entry })
+            .or_else(|| {
+                hud.selected_wheel
+                    .map(|(set, entry, wheel)| MiddleDragTarget::Wheel { set, entry, wheel })
+            })
+            .or_else(|| {
+                hud.highlighted
+                    .map(|(set, entry, wheel, _)| MiddleDragTarget::Wheel { set, entry, wheel })
+            });
+    }
+
+    if !mouse.pressed(MouseButton::Middle) {
+        if mouse.just_released(MouseButton::Middle) {
+            drag.target = None;
+        }
+        return;
+    }
+
+    let delta = motion.delta;
+    if delta == Vec2::ZERO {
+        return;
+    }
+
+    match drag.target {
+        Some(MiddleDragTarget::Action { set, entry }) => {
+            if let Some(action) = action_at(&mut cfg, set, entry) {
+                action.offset_x = (action.offset_x + delta.x).clamp(-2000.0, 2000.0);
+                action.offset_y = (action.offset_y - delta.y).clamp(-2000.0, 2000.0);
+                hud.dirty = true;
+            }
+        }
+        Some(MiddleDragTarget::Wheel { set, entry, wheel }) => {
+            if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
+                w.offset_x = (w.offset_x + delta.x).clamp(-2000.0, 2000.0);
+                w.offset_y = (w.offset_y - delta.y).clamp(-2000.0, 2000.0);
+            }
+            sync_wheelset_visuals(&mut cfg, Selection::Wheel { set, entry, wheel });
+            hud.dirty = true;
+        }
+        None => {}
     }
 }
 
@@ -5168,6 +7051,14 @@ fn validate_config(cfg: Res<QuickActionConfig>, mut validation: ResMut<ConfigVal
                         }
                     }
                 }
+                SetEntry::HudSwitch(hs) => {
+                    if hs.name.trim().is_empty() {
+                        warnings.push(format!(
+                            "HUD switch #{i} in set \"{}\" has an empty name",
+                            set.name
+                        ));
+                    }
+                }
                 _ => {}
             }
         }
@@ -5219,6 +7110,14 @@ fn validate_config(cfg: Res<QuickActionConfig>, mut validation: ResMut<ConfigVal
                     if ws.name.trim().is_empty() {
                         warnings.push(format!(
                             "Wheel set #{ei} in set \"{}\" has an empty name",
+                            set.name
+                        ));
+                    }
+                }
+                SetEntry::HudSwitch(hs) => {
+                    if hs.name.trim().is_empty() {
+                        warnings.push(format!(
+                            "HUD switch #{ei} in set \"{}\" has an empty name",
                             set.name
                         ));
                     }
