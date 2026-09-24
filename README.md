@@ -286,25 +286,24 @@ QuickActionConfig(
 
 ## UI Helpers (bsn!)
 
-The library ships `bsn!`-authored scene builders for `bevy_ui`:
+The library ships `bsn!`-authored scene fragments for the radial-menu
+presentation. The HUD owns the full-screen root; these helpers are intended to
+be spawned as children of the runtime wheel hub:
 
 ```rust
-// Full-screen centered overlay
-commands.spawn_scene(wheel_overlay())
-    .insert((RadialMenu::default(), RadialMenuState::default(), RadialMenuConfig::default()));
-
-// Zero-size hub at screen center
+// Zero-size positioning origin
 let hub = commands.spawn_scene(wheel_hub()).id();
 
-// Absolutely-positioned rounded panel for slice i
-let slice = commands.spawn_scene(wheel_slice_panel(&menu, i, 96.0, bg_color)).id();
-
-// Center disc
-let disc = commands.spawn_scene(wheel_center_disc(radius, color)).id();
-
-// Outer ring
-let ring = commands.spawn_scene(wheel_outer_ring(radius, color, width)).id();
+// Runtime-generated radial-menu visuals use BSN fragments
+commands.spawn_scene(wheel_bg_disc(radius, bg_color));
+commands.spawn_scene(wheel_outer_ring(radius, ring_color, width));
+commands.spawn_scene(wheel_center_ring(inner_radius, hub_color, ring_color, width));
+commands.spawn_scene(wheel_slice_label("Action".into(), 18.0, text_color));
 ```
+
+Sector geometry and hit testing remain runtime ECS work because their layout is
+derived from the current menu data and input state. The reusable BSN fragments
+are defined alongside the radial-menu components in `radial_menu/components.rs`.
 
 ---
 

@@ -231,7 +231,7 @@ pub(super) fn editor_gamepad_nav(
                         }
                     }
                 }
-                5..=7 => {
+                5..=6 => {
                     ui.selection = Selection::Segment {
                         set,
                         entry,
@@ -241,7 +241,7 @@ pub(super) fn editor_gamepad_nav(
                     ui.editing = match hud.edit_control_focus {
                         Some(5) => EditFocus::SlotName(slot),
                         Some(6) => EditFocus::SlotIcon(slot),
-                        _ => EditFocus::SlotInput(slot),
+                        _ => unreachable!("sector editor focus is constrained to 5..=6"),
                     };
                     ui.capture_skip = true;
                     hud.dirty = true;
@@ -427,7 +427,7 @@ pub(super) fn editor_keyboard_radial_nav(
                 ui.dirty = true;
             }
         }
-        5..=7 => {
+        5..=6 => {
             ui.selection = Selection::Segment {
                 set,
                 entry,
@@ -437,7 +437,7 @@ pub(super) fn editor_keyboard_radial_nav(
             ui.editing = match hud.edit_control_focus {
                 Some(5) => EditFocus::SlotName(slot),
                 Some(6) => EditFocus::SlotIcon(slot),
-                _ => EditFocus::SlotInput(slot),
+                _ => unreachable!("sector editor focus is constrained to 5..=6"),
             };
             ui.capture_skip = true;
             hud.dirty = true;

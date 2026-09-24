@@ -164,6 +164,7 @@ pub fn setup_mobile_viewport() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+/// Installs the mobile viewport meta configuration; no-op on desktop.
 pub fn setup_mobile_viewport() {
     // No-op on desktop
 }
@@ -184,6 +185,7 @@ pub fn request_pointer_lock() -> bool {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+/// Requests pointer lock; always returns `false` on desktop.
 pub fn request_pointer_lock() -> bool {
     false
 }
@@ -199,6 +201,7 @@ pub fn exit_pointer_lock() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+/// Releases pointer lock; no-op on desktop.
 pub fn exit_pointer_lock() {}
 
 /// Returns the current device pixel ratio from the browser.
@@ -210,6 +213,7 @@ pub fn get_device_pixel_ratio() -> f64 {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+/// Returns the desktop device-pixel ratio used by the fallback path.
 pub fn get_device_pixel_ratio() -> f64 {
     1.0
 }
@@ -258,6 +262,7 @@ pub fn update_virtual_keyboard_state(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+/// Updates virtual-keyboard state; no-op on desktop.
 pub fn update_virtual_keyboard_state(
     _vk_state: ResMut<VirtualKeyboardState>,
     _info: Res<ViewportInfo>,
@@ -369,17 +374,23 @@ pub mod audio {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+/// Browser-audio facade used on non-WASM targets.
 pub mod audio {
     /// Desktop stub — Bevy's `AudioPlayer` handles this.
     pub struct WasmAudio;
     impl WasmAudio {
+        /// Returns `None` because desktop audio is handled by Bevy.
         pub fn new() -> Option<Self> {
             None
         }
+        /// Resumes the audio context; no-op on desktop.
         pub fn resume(&self) {}
+        /// Loads an audio buffer; no-op on desktop.
         pub fn load_buffer(&mut self, _url: &str) {}
+        /// Plays an audio URL; no-op on desktop.
         pub fn play(&self, _url: &str) {}
     }
+    /// Plays a wheel sound through the platform audio backend.
     pub fn play_wheel_sound(_audio: &Option<crate::RadialMenuAudio>, _sound_type: &str) {}
 }
 

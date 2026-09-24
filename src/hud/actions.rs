@@ -2,6 +2,7 @@
 
 /// Actions emitted by interactive HUD presentation controls.
 #[derive(Clone, Debug)]
+#[allow(missing_docs)]
 pub enum WheelHudAction {
     SetActiveSet(usize),
     PrevSet,
@@ -28,12 +29,6 @@ pub enum WheelHudAction {
         slot: usize,
     },
     EditSegmentIcon {
-        set: usize,
-        entry: usize,
-        wheel: Option<usize>,
-        slot: usize,
-    },
-    EditSegmentInput {
         set: usize,
         entry: usize,
         wheel: Option<usize>,
@@ -191,8 +186,12 @@ pub enum WheelHudAction {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Where a newly created sector is inserted.
 pub enum SegmentInsertSide {
+    /// Insert before the selected sector.
     Before,
+    /// Insert after the selected sector.
     After,
+    /// Append outside the current sectors.
     Outer,
 }

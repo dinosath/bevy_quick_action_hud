@@ -2,6 +2,12 @@
 
 use crate::WheelTheme;
 
+/// Command protocol used by editor widgets and observers.
+///
+/// Variants carry the page, entry, wheel, and sector coordinates needed by
+/// the mutation system. The protocol intentionally keeps UI construction
+/// separate from authored configuration updates.
+#[allow(missing_docs)]
 #[derive(Clone, Debug)]
 pub enum EditorAction {
     // ── sets ────────────────────────────────────────────────────────────────
@@ -94,6 +100,21 @@ pub enum EditorAction {
         set: usize,
         entry: usize,
     },
+    SetActionName {
+        set: usize,
+        entry: usize,
+        value: String,
+    },
+    SetActionCooldown {
+        set: usize,
+        entry: usize,
+        value: f32,
+    },
+    SetActionOpacity {
+        set: usize,
+        entry: usize,
+        value: f32,
+    },
     /// Capture the key/button binding for a quick action (keyboard or gamepad).
     CaptureKey {
         set: usize,
@@ -125,6 +146,14 @@ pub enum EditorAction {
         entry: usize,
     },
     ToggleShowOnMenu {
+        set: usize,
+        entry: usize,
+    },
+    ToggleActionLabels {
+        set: usize,
+        entry: usize,
+    },
+    ToggleActionIcons {
         set: usize,
         entry: usize,
     },
@@ -167,6 +196,9 @@ pub enum EditorAction {
     },
     // ── wheel editing ────────────────────────────────────────────────────────
     EditWheelName,
+    SetWheelName {
+        value: String,
+    },
     ToggleWheelThemePopup,
     SetWheelTheme {
         theme: WheelTheme,
@@ -175,11 +207,17 @@ pub enum EditorAction {
     WheelCooldownDelta {
         delta: f32,
     },
+    SetWheelCooldown {
+        value: f32,
+    },
     WheelOuterRadiusDelta {
         delta: f32,
     },
     WheelInnerRadiusDelta {
         delta: f32,
+    },
+    SetWheelInnerRadius {
+        value: f32,
     },
     ToggleWheelShowLabels,
     EditSlotName {
@@ -295,6 +333,9 @@ pub enum EditorAction {
     WheelOpacityDelta {
         delta: f32,
     },
+    SetWheelOpacity {
+        value: f32,
+    },
     /// Cycle the inner-border ring color (empty = no border).
     CycleInnerBorderColor,
     /// Cycle the outer-border ring color (empty = no border).
@@ -319,15 +360,6 @@ pub enum EditorAction {
     WheelInnerBorderWidthDelta {
         delta: f32,
     },
-    // ── segment input / gamepad binding ─────────────────────────────────────────
-    /// Capture a key or gamepad button as the input binding for segment `slot`.
-    CaptureSlotInput {
-        slot: usize,
-    },
-    /// Clear the input binding for segment `slot`.
-    ClearSlotInput {
-        slot: usize,
-    },
     // ── clear shortcuts ──────────────────────────────────────────────────────────
     ClearNextSetKey,
     ClearPrevSetKey,
@@ -351,10 +383,6 @@ pub enum EditorAction {
         set: usize,
         entry: usize,
     },
-    /// Toggle stick side for the active standalone wheel.
-    CycleWheelStick,
-    /// Toggle stick side for the selected RadialMenuSetState entry.
-    CycleWheelSetStick,
     /// Toggle close-on-select for slot `slot` of the active wheel.
     ToggleSlotCloseOnSelect {
         slot: usize,

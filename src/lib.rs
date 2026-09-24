@@ -2,6 +2,8 @@
 //!
 //! This library provides the logic and data structures for wheel menus.
 //! Rendering is left to the application.
+#![warn(missing_docs)]
+
 pub mod editor;
 mod hud;
 mod persistence;
@@ -21,9 +23,8 @@ pub use radial_menu::messages::*;
 pub use radial_menu::{
     check_low_counts, emit_lifecycle, emit_selection, resolve_wheel_input, slice_angles,
     slice_center, update_active_slot_context, update_edit_mode, update_wheel_hold,
-    update_wheel_hover, wheel_bg_disc, wheel_center_disc, wheel_center_ring, wheel_hub,
-    wheel_outer_ring, wheel_overlay, wheel_slice_icon, wheel_slice_label, wheel_slice_panel,
-    wheel_slice_panel_rect, wheel_slice_panel_styled,
+    update_wheel_hover, wheel_bg_disc, wheel_center_ring, wheel_hub, wheel_outer_ring,
+    wheel_slice_label,
 };
 pub use radial_menu::{
     resolve_input, ActiveSlotContext, CastingMode, GlobalBindings, InputAction, RadialMenuAudio,
@@ -31,7 +32,9 @@ pub use radial_menu::{
     RadialMenuState, RadialMenuStyle, RadialMenuToggleMode, SectorContent, SectorCount,
     SectorEntity, WheelAction, WheelInputOverride, WheelSliceLink,
 };
-pub use radial_menu::{RadialMenu, Sector, SegmentShape, StickSide, WheelTheme};
+pub use radial_menu::{
+    RadialMenu, RadialMenuGeometry, Sector, SegmentShape, WheelTheme, DEFAULT_STICK_BINDING,
+};
 pub use radial_menu_set::messages::*;
 use radial_menu_set::update_wheel_set;
 pub use radial_menu_set::{
@@ -41,9 +44,9 @@ pub use radial_menu_set::{
 use bevy::asset::embedded_asset;
 use bevy::prelude::*;
 #[allow(unused_imports)]
-pub(crate) use hud::config::{_default_action_color, _default_inner_radius, _default_outer_radius};
-pub(crate) use hud::render::{
-    hud_action_field, hud_action_stepper, hud_child, hud_clickable, hud_text,
+pub(crate) use hud::config::_default_action_color;
+pub(crate) use hud::ui::{
+    hud_action_field, hud_action_stepper, hud_child, hud_clickable, hud_label_or, hud_text,
 };
 
 /// Default filename for the persisted [`QuickActionConfig`].
@@ -72,6 +75,7 @@ pub struct QuickActionHudPlugin {
 }
 
 impl Default for QuickActionHudPlugin {
+    /// Creates the runtime HUD plugin without the editor.
     fn default() -> Self {
         Self {
             hud: true,
@@ -101,6 +105,7 @@ impl QuickActionHudPlugin {
 }
 
 impl Plugin for QuickActionHudPlugin {
+    /// Registers core messages, systems, assets, and optional HUD/editor systems.
     fn build(&self, app: &mut App) {
         scheduling::configure(app);
         embedded_asset!(app, "embedded/shaders/wedge.wgsl");
@@ -265,6 +270,7 @@ impl Plugin for QuickActionHudPlugin {
 /// Provides core wheel logic with no HUD canvas.
 pub struct WheelMenuPlugin;
 impl Plugin for WheelMenuPlugin {
+    /// Registers the core wheel systems through [`QuickActionHudPlugin::core`].
     fn build(&self, app: &mut App) {
         app.add_plugins(QuickActionHudPlugin::core());
     }
@@ -289,6 +295,30 @@ mod tests {
         assert_eq!(cfg.next_set_key, deserialized.next_set_key);
         assert_eq!(cfg.prev_set_key, deserialized.prev_set_key);
         assert_eq!(cfg.hud_open_mode, deserialized.hud_open_mode);
+
+        let wheel = RadialMenu::new("Geometry", 1);
+        let wheel_serialized = ron::ser::to_string(&wheel).expect("serialize radial menu");
+        let wheel_deserialized: RadialMenu =
+            ron::from_str(&wheel_serialized).expect("deserialize radial menu");
+        assert_eq!(wheel.outer_radius, wheel_deserialized.outer_radius);
+        assert_eq!(wheel.arc_offset, wheel_deserialized.arc_offset);
+    }
+
+    #[test]
+    fn existing_flat_geometry_config_deserializes() {
+        let cfg: QuickActionConfig = ron::from_str(include_str!("../quickactions_config.ron"))
+            .expect("deserialize existing flat-key configuration");
+        let wheel = cfg
+            .sets
+            .iter()
+            .flat_map(|set| set.entries.iter())
+            .find_map(|entry| match entry {
+                SetEntry::Wheel(wheel) => Some(wheel),
+                SetEntry::RadialMenuSet(set) => set.wheels.first(),
+                _ => None,
+            })
+            .expect("existing configuration contains a radial menu");
+        assert!(wheel.outer_radius > wheel.inner_radius);
     }
 
     #[test]
@@ -538,21 +568,9 @@ mod tests {
     }
 
     #[test]
-    fn stick_side_cycle() {
-        assert_eq!(StickSide::Right.next(), StickSide::Left);
-        assert_eq!(StickSide::Left.next(), StickSide::Right);
-    }
-
-    #[test]
     fn hud_open_mode_labels() {
         assert_eq!(HudOpenMode::Hold.label(), "Hold");
         assert_eq!(HudOpenMode::Toggle.label(), "Toggle");
-    }
-
-    #[test]
-    fn stick_side_labels() {
-        assert_eq!(StickSide::Right.label(), "R Stick");
-        assert_eq!(StickSide::Left.label(), "L Stick");
     }
 
     #[test]
@@ -840,11 +858,20 @@ mod tests {
 
     #[test]
     fn default_outer_radius() {
-        assert!((_default_outer_radius() - 270.0).abs() < f32::EPSILON);
+        assert!((RadialMenuGeometry::default().outer_radius - 270.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn radial_menu_defaults_to_right_thumbstick_binding() {
+        assert_eq!(RadialMenu::default().stick_binding, DEFAULT_STICK_BINDING);
+        assert_eq!(
+            RadialMenuSet::default().stick_binding,
+            DEFAULT_STICK_BINDING
+        );
     }
 
     #[test]
     fn default_inner_radius() {
-        assert!((_default_inner_radius() - 130.0).abs() < f32::EPSILON);
+        assert!((RadialMenuGeometry::default().inner_radius - 130.0).abs() < f32::EPSILON);
     }
 }

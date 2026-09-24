@@ -6,7 +6,9 @@ use bevy::prelude::*;
 /// Warnings about the current `QuickActionConfig`.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct ConfigValidation {
+    /// Human-readable warnings found in the authored configuration.
     pub warnings: Vec<String>,
+    /// Whether validation found a blocking error.
     pub has_errors: bool,
 }
 
@@ -63,9 +65,8 @@ pub(super) fn validate_config(
         }
     }
 
-    // Every component shortcut must be unique within its HUD page. This
-    // includes buttons, sectors, HUD switches, and wheel-set next/previous
-    // wheel shortcuts; identical shortcuts on different pages are allowed.
+    // Every component shortcut must be unique within its HUD page; identical
+    // shortcuts on different pages are allowed.
     for (si, page) in cfg.sets.iter().enumerate() {
         let mut seen_keys: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
@@ -78,20 +79,11 @@ pub(super) fn validate_config(
             match entry {
                 SetEntry::Action(button) => record_key(&button.key),
                 SetEntry::HudSwitch(switch) => record_key(&switch.key),
-                SetEntry::Wheel(wheel) => {
-                    for sector in &wheel.slots {
-                        record_key(&sector.input);
-                    }
-                }
+                SetEntry::Wheel(_) => {}
                 SetEntry::RadialMenuSet(wheel_set) => {
                     record_key(&wheel_set.prev_wheel_key);
                     record_key(&wheel_set.next_wheel_key);
                     record_key(&wheel_set.switch_key);
-                    for wheel in &wheel_set.wheels {
-                        for sector in &wheel.slots {
-                            record_key(&sector.input);
-                        }
-                    }
                 }
             }
         }

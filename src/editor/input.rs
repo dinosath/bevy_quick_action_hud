@@ -22,9 +22,6 @@ fn focused_name<'a>(cfg: &'a mut QuickActionConfig, ui: &EditorUiState) -> Optio
         EditFocus::SlotIcon(i) => {
             wheel_at(cfg, ui.selection).and_then(move |w| w.slots.get_mut(i).map(|s| &mut s.icon))
         }
-        EditFocus::SlotInput(i) => {
-            wheel_at(cfg, ui.selection).and_then(move |w| w.slots.get_mut(i).map(|s| &mut s.input))
-        }
         EditFocus::WheelSetName => match ui.selection {
             Selection::WheelSetEntry { set, entry } => cfg
                 .sets
@@ -71,7 +68,6 @@ pub(super) fn editor_text_input(
             | EditFocus::WheelName
             | EditFocus::SlotName(_)
             | EditFocus::SlotIcon(_)
-            | EditFocus::SlotInput(_)
             | EditFocus::WheelSetName
     ) {
         messages.clear();
@@ -139,8 +135,6 @@ pub(super) fn editor_capture_key(
             | EditFocus::NextSetKey
             | EditFocus::PrevSetKey
             | EditFocus::WheelSetSwitchKey
-            | EditFocus::WheelSetStick
-            | EditFocus::SlotInput(_)
             | EditFocus::EditShortcut
             | EditFocus::NextWheelKey(_)
             | EditFocus::PrevWheelKey(_)
@@ -173,29 +167,6 @@ pub(super) fn editor_capture_key(
                         }
                     }
                 }
-                EditFocus::WheelSetStick => {
-                    if let Selection::WheelSetEntry { set, entry } = ui.selection {
-                        if let Some(SetEntry::RadialMenuSet(ws)) =
-                            cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
-                        {
-                            if matches!(*key, KeyCode::KeyL | KeyCode::KeyR) {
-                                ws.stick = if *key == KeyCode::KeyL {
-                                    StickSide::Left
-                                } else {
-                                    StickSide::Right
-                                };
-                                let mut visuals = wheelset_visuals(ws);
-                                visuals.stick = ws.stick;
-                                ws.visuals = Some(visuals.clone());
-                                for wheel in &mut ws.wheels {
-                                    visuals.apply_to(wheel);
-                                }
-                            } else {
-                                continue;
-                            }
-                        }
-                    }
-                }
                 EditFocus::NextSetKey => cfg.next_set_key = label,
                 EditFocus::PrevSetKey => cfg.prev_set_key = label,
                 EditFocus::EditShortcut => cfg.edit_shortcut = label,
@@ -223,13 +194,6 @@ pub(super) fn editor_capture_key(
                         ws.prev_wheel_key = label;
                     }
                 }
-                EditFocus::SlotInput(slot) => {
-                    if let Some(w) = wheel_at(&mut cfg, ui.selection) {
-                        if let Some(s) = w.slots.get_mut(slot) {
-                            s.input = label;
-                        }
-                    }
-                }
                 _ => {}
             }
         }
@@ -250,7 +214,7 @@ pub(super) fn editor_capture_gamepad(
     if !matches!(
         focus,
         EditFocus::Key
-            | EditFocus::SlotInput(_)
+            | EditFocus::ButtonKey
             | EditFocus::NextSetKey
             | EditFocus::PrevSetKey
             | EditFocus::EditShortcut
@@ -271,7 +235,7 @@ pub(super) fn editor_capture_gamepad(
 
     // Radial-menu stick capture is intentionally axis-only. Buttons, d-pad,
     // triggers, and keyboard keys must never bind the stick selector.
-    if ui.editing == EditFocus::WheelStick {
+    if matches!(ui.editing, EditFocus::WheelStick | EditFocus::WheelSetStick) {
         for gamepad in &gamepads {
             let left = GamepadAxis::LeftStickX;
             let right = GamepadAxis::RightStickX;
@@ -285,18 +249,29 @@ pub(super) fn editor_capture_gamepad(
                 .unwrap_or(0.0)
                 .abs()
                 .max(gamepad.get(GamepadAxis::RightStickY).unwrap_or(0.0).abs());
-            let side = if left_strength >= 0.6 && left_strength >= right_strength {
-                Some(StickSide::Left)
+            let binding = if left_strength >= 0.6 && left_strength >= right_strength {
+                Some("GP:LeftStick")
             } else if right_strength >= 0.6 {
-                Some(StickSide::Right)
+                Some("GP:RightStick")
             } else {
                 None
             };
-            if let Some(side) = side {
-                if let Some(w) = wheel_at(&mut cfg, ui.selection) {
-                    w.stick = side;
+            if let Some(binding) = binding {
+                if ui.editing == EditFocus::WheelStick {
+                    if let Some(w) = wheel_at(&mut cfg, ui.selection) {
+                        w.stick_binding = binding.into();
+                    }
+                    sync_wheelset_visuals(&mut cfg, ui.selection);
+                } else if let Selection::WheelSetEntry { set, entry } = ui.selection {
+                    if let Some(SetEntry::RadialMenuSet(ws)) =
+                        cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
+                    {
+                        ws.stick_binding = binding.into();
+                        for wheel in &mut ws.wheels {
+                            wheel.stick_binding = ws.stick_binding.clone();
+                        }
+                    }
                 }
-                sync_wheelset_visuals(&mut cfg, ui.selection);
                 ui.editing = EditFocus::None;
                 ui.capture_consumed = true;
                 ui.dirty = true;
@@ -330,7 +305,7 @@ pub(super) fn editor_capture_gamepad(
                 let label = gamepad_btn_label(btn);
                 let gp = format!("GP:{}", label);
                 match focus {
-                    EditFocus::Key => {
+                    EditFocus::Key | EditFocus::ButtonKey => {
                         if let Selection::Action { set, entry } = ui.selection {
                             if let Some(a) = action_at(&mut cfg, set, entry) {
                                 a.key = gp;
@@ -343,34 +318,6 @@ pub(super) fn editor_capture_gamepad(
                                 cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
                             {
                                 ws.switch_key = gp;
-                            }
-                        }
-                    }
-                    EditFocus::WheelSetStick => {
-                        if let Selection::WheelSetEntry { set, entry } = ui.selection {
-                            if let Some(SetEntry::RadialMenuSet(ws)) =
-                                cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
-                            {
-                                ws.stick = if btn == GamepadButton::LeftThumb {
-                                    StickSide::Left
-                                } else if btn == GamepadButton::RightThumb {
-                                    StickSide::Right
-                                } else {
-                                    continue;
-                                };
-                                let mut visuals = wheelset_visuals(ws);
-                                visuals.stick = ws.stick;
-                                ws.visuals = Some(visuals.clone());
-                                for wheel in &mut ws.wheels {
-                                    visuals.apply_to(wheel);
-                                }
-                            }
-                        }
-                    }
-                    EditFocus::SlotInput(slot) => {
-                        if let Some(w) = wheel_at(&mut cfg, ui.selection) {
-                            if let Some(s) = w.slots.get_mut(slot) {
-                                s.input = gp;
                             }
                         }
                     }

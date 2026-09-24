@@ -37,5 +37,3 @@ pub(super) fn rebuild_editor(mut ui: ResMut<EditorUiState>, hud: Res<WheelHudSta
     }
     ui.nav_count = 0;
 }
-
-// ─── editor card / field helpers ─────────────────────────────────────────────────

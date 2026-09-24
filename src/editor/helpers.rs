@@ -19,7 +19,6 @@ pub(super) fn is_nav_only_action(action: &EditorAction) -> bool {
             | EditorAction::CapturePrevSetKey
             | EditorAction::CaptureEditShortcut
             | EditorAction::CaptureWheelSetSwitchKey { .. }
-            | EditorAction::CaptureSlotInput { .. }
             | EditorAction::CaptureNextWheelKey { .. }
             | EditorAction::CapturePrevWheelKey { .. }
             | EditorAction::Save
@@ -75,6 +74,7 @@ pub(super) fn sync_wheelset_visuals(cfg: &mut QuickActionConfig, selection: Sele
     crate::radial_menu_set::editor::sync_visuals_from_wheel(ws, index);
 }
 
+/// Returns a minimum button size appropriate for the active input surface.
 pub fn touch_safe_button_size(configured_size: f32, is_touch: bool) -> f32 {
     if is_touch {
         configured_size.max(44.0)

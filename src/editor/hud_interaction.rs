@@ -94,6 +94,7 @@ pub(super) fn process_hud_buttons(
                         hud.selected_action = None;
                         hud.selected_wheel = None;
                         hud.selected_hud_switch = None;
+                        hud.selected_segment = None;
                         hud.hovered_action = None;
                         hud.hovered_wheel = None;
                         hud.hovered_hud_switch = None;
@@ -147,6 +148,7 @@ pub(super) fn process_hud_buttons(
                             wheel: *wheel,
                             slot,
                         };
+                        hud.selected_segment = Some((*set, *entry, *wheel, slot));
                         hud.highlighted = Some((*set, *entry, *wheel, slot));
                         hud.dirty = true;
                         ui.dirty = true;
@@ -175,6 +177,7 @@ pub(super) fn process_hud_buttons(
                                 wheel: *wheel,
                                 slot: next_slot,
                             };
+                            hud.selected_segment = Some((*set, *entry, *wheel, next_slot));
                             hud.highlighted = Some((*set, *entry, *wheel, next_slot));
                             hud.dirty = true;
                             ui.dirty = true;
@@ -196,6 +199,7 @@ pub(super) fn process_hud_buttons(
                     hud.selected_action = None;
                     hud.selected_wheel = None;
                     hud.selected_hud_switch = None;
+                    hud.selected_segment = Some((*set, *entry, *wheel, *slot));
                     ui.editing = EditFocus::SlotName(*slot);
                     hud.highlighted = Some((*set, *entry, *wheel, *slot));
                     hud.dirty = true;
@@ -216,27 +220,8 @@ pub(super) fn process_hud_buttons(
                     hud.selected_action = None;
                     hud.selected_wheel = None;
                     hud.selected_hud_switch = None;
+                    hud.selected_segment = Some((*set, *entry, *wheel, *slot));
                     ui.editing = EditFocus::SlotIcon(*slot);
-                    hud.highlighted = Some((*set, *entry, *wheel, *slot));
-                    hud.dirty = true;
-                    ui.dirty = true;
-                }
-                WheelHudAction::EditSegmentInput {
-                    set,
-                    entry,
-                    wheel,
-                    slot,
-                } => {
-                    ui.selection = Selection::Segment {
-                        set: *set,
-                        entry: *entry,
-                        wheel: *wheel,
-                        slot: *slot,
-                    };
-                    hud.selected_action = None;
-                    hud.selected_wheel = None;
-                    hud.selected_hud_switch = None;
-                    ui.editing = EditFocus::SlotInput(*slot);
                     hud.highlighted = Some((*set, *entry, *wheel, *slot));
                     hud.dirty = true;
                     ui.dirty = true;
@@ -350,6 +335,7 @@ pub(super) fn process_hud_buttons(
                         }
                     }
                     ui.selection = Selection::None;
+                    hud.selected_segment = None;
                     hud.highlighted = None;
                     hud.dirty = true;
                     ui.dirty = true;
@@ -384,6 +370,7 @@ pub(super) fn process_hud_buttons(
                     hud.selected_action = Some((*set, *entry));
                     hud.selected_wheel = None;
                     hud.selected_hud_switch = None;
+                    hud.selected_segment = None;
                     hud.highlighted = None;
                     ui.selection = Selection::Action {
                         set: *set,
@@ -397,6 +384,7 @@ pub(super) fn process_hud_buttons(
                 | WheelHudAction::EditHudSwitch { set, entry } => {
                     hud.selected_action = None;
                     hud.selected_wheel = None;
+                    hud.selected_segment = None;
                     hud.selected_hud_switch = Some((*set, *entry));
                     hud.highlighted = None;
                     ui.selection = Selection::HudSwitch {
@@ -419,6 +407,7 @@ pub(super) fn process_hud_buttons(
                     hud.selected_action = None;
                     hud.selected_wheel = None;
                     hud.selected_hud_switch = None;
+                    hud.selected_segment = None;
                     hud.dirty = true;
                     ui.dirty = true;
                 }
@@ -450,6 +439,7 @@ pub(super) fn process_hud_buttons(
                     );
                     hud.selected_action = None;
                     hud.selected_wheel = None;
+                    hud.selected_segment = None;
                     hud.highlighted = None;
                     hud.edit_control_focus = None;
                     hud.dirty = true;
@@ -566,6 +556,7 @@ pub(super) fn process_hud_buttons(
                     hud.selected_wheel = Some((*set, *entry, *wheel));
                     hud.selected_action = None;
                     hud.selected_hud_switch = None;
+                    hud.selected_segment = None;
                     hud.highlighted = None;
                     ui.selection = Selection::Wheel {
                         set: *set,
@@ -593,6 +584,7 @@ pub(super) fn process_hud_buttons(
                         &mut hud,
                     );
                     hud.selected_wheel = Some((*set, *entry, *wheel));
+                    hud.selected_segment = None;
                     hud.dirty = true;
                     ui.dirty = true;
                 }
@@ -607,6 +599,7 @@ pub(super) fn process_hud_buttons(
                     };
                     apply_action(&editor_action, &mut qcfg, &mut ui, &mut hud);
                     hud.selected_wheel = None;
+                    hud.selected_segment = None;
                     hud.highlighted = None;
                     hud.dirty = true;
                     ui.dirty = true;
@@ -685,6 +678,7 @@ pub(super) fn process_hud_buttons(
                     hud.highlighted = None;
                     hud.selected_action = None;
                     hud.selected_wheel = None;
+                    hud.selected_segment = None;
                     hud.edit_control_focus = None;
                     ui.selection = Selection::None;
                     ui.editing = EditFocus::None;
@@ -772,6 +766,7 @@ pub(super) fn click_hud_segments(
         } else if *interaction == Interaction::Pressed {
             hud.mouse_hovered_segment = None;
             hud.highlighted = Some(id);
+            hud.selected_segment = Some(id);
             hud.selected_action = None;
             hud.selected_wheel = None;
             hud.edit_control_focus = Some(0);

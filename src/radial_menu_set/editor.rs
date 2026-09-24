@@ -9,8 +9,9 @@ pub(crate) fn sync_visuals_from_wheel(set: &mut RadialMenuSet, wheel_index: usiz
     };
     let visuals = RadialMenuSetVisuals::from(&source);
     set.visuals = Some(visuals.clone());
-    set.stick = visuals.stick;
+    set.stick_binding = source.stick_binding;
     for wheel in &mut set.wheels {
         visuals.apply_to(wheel);
+        wheel.stick_binding = set.stick_binding.clone();
     }
 }

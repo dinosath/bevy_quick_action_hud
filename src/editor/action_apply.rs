@@ -24,8 +24,12 @@ fn is_mutative_action(action: &EditorAction) -> bool {
             | EditorAction::NavBack
             | EditorAction::SelectSegment { .. }
             | EditorAction::EditName { .. }
+            | EditorAction::SetActionName { .. }
+            | EditorAction::SetActionCooldown { .. }
+            | EditorAction::SetActionOpacity { .. }
             | EditorAction::EditSetName { .. }
             | EditorAction::EditWheelName
+            | EditorAction::SetWheelName { .. }
             | EditorAction::EditSlotName { .. }
             | EditorAction::EditSlotIcon { .. }
             | EditorAction::EditWheelSetName { .. }
@@ -35,7 +39,6 @@ fn is_mutative_action(action: &EditorAction) -> bool {
             | EditorAction::CapturePrevSetKey
             | EditorAction::CaptureEditShortcut
             | EditorAction::CaptureWheelSetSwitchKey { .. }
-            | EditorAction::CaptureSlotInput { .. }
             | EditorAction::CaptureNextWheelKey { .. }
             | EditorAction::CapturePrevWheelKey { .. }
             | EditorAction::Save
@@ -108,6 +111,12 @@ pub(super) fn apply_action(
                 ui.selection = Selection::None;
                 ui.editing = EditFocus::None;
             }
+            if hud
+                .selected_segment
+                .is_some_and(|(selected_set, ..)| selected_set == set)
+            {
+                hud.selected_segment = None;
+            }
             if !cfg.sets.is_empty() {
                 hud.active_set = hud.active_set.min(cfg.sets.len() - 1);
             }
@@ -115,6 +124,7 @@ pub(super) fn apply_action(
         EditorAction::SelectSet { set } => {
             ui.selection = Selection::Set { set };
             ui.editing = EditFocus::None;
+            hud.selected_segment = None;
             // Sync the HUD live preview to show this set.
             hud.active_set = set;
             hud.active_wheel_entry = 0;
@@ -170,7 +180,6 @@ pub(super) fn apply_action(
                 s.entries.push(SetEntry::RadialMenuSet(RadialMenuSet {
                     name: "New radial menu set".into(),
                     wheels: vec![RadialMenu::new("Radial menu 1", 6)],
-                    stick: StickSide::Right,
                     ..default()
                 }));
             }
@@ -193,6 +202,7 @@ pub(super) fn apply_action(
                     let n = ws.wheels.len() + 1;
                     let mut wheel = RadialMenu::new(format!("Radial menu {}", n), 6);
                     wheelset_visuals(ws).apply_to(&mut wheel);
+                    wheel.stick_binding = ws.stick_binding.clone();
                     ws.wheels.push(wheel);
                 }
             }
@@ -210,6 +220,14 @@ pub(super) fn apply_action(
                 ui.selection = Selection::None;
                 ui.editing = EditFocus::None;
             }
+            if hud
+                .selected_segment
+                .is_some_and(|(selected_set, selected_entry, ..)| {
+                    selected_set == set && selected_entry == entry
+                })
+            {
+                hud.selected_segment = None;
+            }
         }
         EditorAction::DeleteWheelFromSet { set, entry, wheel } => {
             if let Some(SetEntry::RadialMenuSet(ws)) =
@@ -224,6 +242,13 @@ pub(super) fn apply_action(
             if clear {
                 ui.selection = Selection::None;
                 ui.editing = EditFocus::None;
+            }
+            if hud.selected_segment.is_some_and(
+                |(selected_set, selected_entry, selected_wheel, _)| {
+                    selected_set == set && selected_entry == entry && selected_wheel == Some(wheel)
+                },
+            ) {
+                hud.selected_segment = None;
             }
         }
         EditorAction::MoveEntryUp { set, entry } => {
@@ -283,6 +308,7 @@ pub(super) fn apply_action(
         EditorAction::SelectAction { set, entry } => {
             ui.selection = Selection::Action { set, entry };
             ui.editing = EditFocus::None;
+            hud.selected_segment = None;
             hud.highlighted = None;
             // Sync the active set so the HUD shows the correct context.
             hud.active_set = set;
@@ -290,6 +316,7 @@ pub(super) fn apply_action(
         EditorAction::SelectHudSwitch { set, entry } => {
             ui.selection = Selection::HudSwitch { set, entry };
             ui.editing = EditFocus::None;
+            hud.selected_segment = None;
             hud.active_set = set;
         }
         EditorAction::CaptureHudSwitchKey { set, entry } => {
@@ -325,6 +352,7 @@ pub(super) fn apply_action(
         EditorAction::SelectWheel { set, entry, wheel } => {
             ui.selection = Selection::Wheel { set, entry, wheel };
             ui.editing = EditFocus::None;
+            hud.selected_segment = None;
             hud.highlighted = None;
             // Sync the HUD to preview the selected wheel.
             hud.active_set = set;
@@ -333,6 +361,7 @@ pub(super) fn apply_action(
         EditorAction::SelectWheelSetEntry { set, entry } => {
             ui.selection = Selection::WheelSetEntry { set, entry };
             ui.editing = EditFocus::None;
+            hud.selected_segment = None;
             hud.highlighted = None;
             // Sync the HUD to preview the selected wheel set.
             hud.active_set = set;
@@ -341,10 +370,12 @@ pub(super) fn apply_action(
         EditorAction::SelectSetSwitch => {
             ui.selection = Selection::SetSwitch;
             ui.editing = EditFocus::None;
+            hud.selected_segment = None;
             hud.highlighted = None;
         }
         EditorAction::NavBack => {
             ui.editing = EditFocus::None;
+            hud.selected_segment = None;
             hud.highlighted = None;
             ui.selection = match ui.selection {
                 // Segment → back to its wheel
@@ -364,9 +395,29 @@ pub(super) fn apply_action(
             ui.selection = Selection::Action { set, entry };
             ui.editing = EditFocus::Name;
         }
+        EditorAction::SetActionName {
+            set,
+            entry,
+            ref value,
+        } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.name.clone_from(value);
+            }
+            ui.editing = EditFocus::None;
+        }
+        EditorAction::SetActionCooldown { set, entry, value } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.cooldown_secs = value.clamp(0.0, 10.0);
+            }
+        }
+        EditorAction::SetActionOpacity { set, entry, value } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.opacity = value.clamp(0.0, 1.0);
+            }
+        }
         EditorAction::CaptureKey { set, entry } => {
             ui.selection = Selection::Action { set, entry };
-            ui.editing = EditFocus::Key;
+            ui.editing = EditFocus::ButtonKey;
         }
         EditorAction::CycleIcon { set, entry } => {
             if let Some(a) = action_at(cfg, set, entry) {
@@ -414,6 +465,16 @@ pub(super) fn apply_action(
                 a.show_on_menu = !a.show_on_menu;
             }
         }
+        EditorAction::ToggleActionLabels { set, entry } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.show_labels = !a.show_labels;
+            }
+        }
+        EditorAction::ToggleActionIcons { set, entry } => {
+            if let Some(a) = action_at(cfg, set, entry) {
+                a.show_icon = !a.show_icon;
+            }
+        }
         EditorAction::ToggleEnabled { set, entry } => {
             if let Some(a) = action_at(cfg, set, entry) {
                 a.enabled = !a.enabled;
@@ -458,6 +519,12 @@ pub(super) fn apply_action(
         EditorAction::EditWheelName => {
             ui.editing = EditFocus::WheelName;
         }
+        EditorAction::SetWheelName { ref value } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                w.name.clone_from(value);
+            }
+            ui.editing = EditFocus::None;
+        }
         EditorAction::ToggleWheelThemePopup => {
             hud.theme_popup_open = !hud.theme_popup_open;
         }
@@ -475,6 +542,11 @@ pub(super) fn apply_action(
                 w.cooldown_secs = (w.cooldown_secs + delta).clamp(0.0, 10.0);
             }
         }
+        EditorAction::SetWheelCooldown { value } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                w.cooldown_secs = value.clamp(0.0, 10.0);
+            }
+        }
         EditorAction::WheelOuterRadiusDelta { delta } => {
             if let Some(w) = wheel_at(cfg, ui.selection) {
                 w.outer_radius = (w.outer_radius + delta).clamp(40.0, 300.0);
@@ -483,6 +555,11 @@ pub(super) fn apply_action(
         EditorAction::WheelInnerRadiusDelta { delta } => {
             if let Some(w) = wheel_at(cfg, ui.selection) {
                 w.inner_radius = (w.inner_radius + delta).clamp(8.0, 100.0);
+            }
+        }
+        EditorAction::SetWheelInnerRadius { value } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                w.inner_radius = value.clamp(8.0, 100.0);
             }
         }
         EditorAction::ToggleWheelShowLabels => {
@@ -564,6 +641,7 @@ pub(super) fn apply_action(
                         .active_wheel_index
                         .checked_sub(1)
                         .unwrap_or(ws.wheels.len() - 1);
+                    hud.selected_segment = None;
                     hud.highlighted = None;
                     hud.dirty = true;
                 }
@@ -577,6 +655,7 @@ pub(super) fn apply_action(
                     hud.active_set = set;
                     hud.active_wheel_entry = wheel_entry_idx(cfg, set, entry);
                     hud.active_wheel_index = (hud.active_wheel_index + 1) % ws.wheels.len();
+                    hud.selected_segment = None;
                     hud.highlighted = None;
                     hud.dirty = true;
                 }
@@ -600,6 +679,7 @@ pub(super) fn apply_action(
                 ui.selection = Selection::None;
                 ui.editing = EditFocus::None;
                 hud.active_set = 0;
+                hud.selected_segment = None;
                 hud.highlighted = None;
                 hud.dirty = true;
                 ui.dirty = true;
@@ -619,6 +699,7 @@ pub(super) fn apply_action(
                 slot,
             };
             ui.editing = EditFocus::None;
+            hud.selected_segment = Some((set, entry, wheel, slot));
             hud.highlighted = Some((set, entry, wheel, slot));
             hud.edit_control_focus = Some(0);
             // Sync the HUD to preview the wheel containing this segment.
@@ -644,6 +725,11 @@ pub(super) fn apply_action(
         EditorAction::WheelOpacityDelta { delta } => {
             if let Some(w) = wheel_at(cfg, ui.selection) {
                 w.opacity = (w.opacity + delta).clamp(0.0, 1.0);
+            }
+        }
+        EditorAction::SetWheelOpacity { value } => {
+            if let Some(w) = wheel_at(cfg, ui.selection) {
+                w.opacity = value.clamp(0.0, 1.0);
             }
         }
         EditorAction::CycleInnerBorderColor => {
@@ -698,17 +784,6 @@ pub(super) fn apply_action(
                 w.hub_opacity = (w.hub_opacity + delta).clamp(0.0, 1.0);
             }
         }
-        // ── segment input / gamepad binding ─────────────────────────────────────────
-        EditorAction::CaptureSlotInput { slot } => {
-            ui.editing = EditFocus::SlotInput(slot);
-        }
-        EditorAction::ClearSlotInput { slot } => {
-            if let Some(w) = wheel_at(cfg, ui.selection) {
-                if let Some(s) = w.slots.get_mut(slot) {
-                    s.input.clear();
-                }
-            }
-        }
         // ── clear shortcuts ─────────────────────────────────────────────────────────
         EditorAction::ClearNextSetKey => {
             cfg.next_set_key.clear();
@@ -740,12 +815,9 @@ pub(super) fn apply_action(
             if let Some(SetEntry::RadialMenuSet(ws)) =
                 cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
             {
-                ws.stick = StickSide::Right;
-                let mut visuals = wheelset_visuals(ws);
-                visuals.stick = ws.stick;
-                ws.visuals = Some(visuals.clone());
+                ws.stick_binding = DEFAULT_STICK_BINDING.into();
                 for wheel in &mut ws.wheels {
-                    visuals.apply_to(wheel);
+                    wheel.stick_binding = DEFAULT_STICK_BINDING.into();
                 }
             }
         }
@@ -772,26 +844,6 @@ pub(super) fn apply_action(
                 "#160b0b", "#0b160b",
             ];
             cfg.hud_bg_color = cycle_palette(COLORS, &cfg.hud_bg_color).into();
-        }
-        EditorAction::CycleWheelStick => {
-            if let Some(w) = wheel_at(cfg, ui.selection) {
-                w.stick = w.stick.next();
-            }
-        }
-        EditorAction::CycleWheelSetStick => {
-            if let Selection::WheelSetEntry { set, entry } = ui.selection {
-                if let Some(SetEntry::RadialMenuSet(ws)) =
-                    cfg.sets.get_mut(set).and_then(|s| s.entries.get_mut(entry))
-                {
-                    ws.stick = ws.stick.next();
-                    let mut visuals = wheelset_visuals(ws);
-                    visuals.stick = ws.stick;
-                    ws.visuals = Some(visuals.clone());
-                    for wheel in &mut ws.wheels {
-                        visuals.apply_to(wheel);
-                    }
-                }
-            }
         }
         EditorAction::ToggleSlotCloseOnSelect { slot } => {
             if let Some(w) = wheel_at(cfg, ui.selection) {

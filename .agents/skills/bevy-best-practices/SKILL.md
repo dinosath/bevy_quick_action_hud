@@ -71,7 +71,7 @@ migrations, also read [references/bsn-feathers-review.md](references/bsn-feather
   game-specific interaction and document each exception.
 - Preserve the behavior contract during UI migration: captured input must be
   consumed before global shortcuts, selection must not reopen unrelated config
-  windows, and pointer hover must not change ownership or rebuild every HUD
+  windows, and pointer hover must not change ownership or rebuild every UI
   component.
 - Review scene ownership and deferred-command timing explicitly. A runtime
   entity returned for immediate child population may justify a small imperative

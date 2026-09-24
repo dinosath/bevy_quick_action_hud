@@ -46,7 +46,7 @@ these questions:
 - Does the stock widget provide the required value and activation messages?
 - Does it work with the project’s keyboard/gamepad focus and pointer model?
 - Can it coexist with rebinding/capture without leaking the triggering input to
-  global HUD shortcuts?
+  global application shortcuts?
 - Does it preserve accessibility labels, disabled/selected state, and theme
   semantics?
 - Does it avoid replacing a whole `Node` component after a Feathers scene has
@@ -83,8 +83,8 @@ When all controls appear/disappear or a config panel opens unexpectedly:
    narrow queries where appropriate.
 
 Input capture must run before global shortcuts. The capture system should mark
-the event consumed, and HUD open/close, action, radial navigation, and editor
-shortcut systems must honor that consumed state in the same update.
+the event consumed, and application-level input systems must honor that
+consumed state in the same update.
 
 ## Review deliverable
 
@@ -103,19 +103,18 @@ Coverage percentages must state what they measure (for example, static
 hierarchy lines or widget surface), because runtime entity counts and source
 line counts give very different results.
 
-## Architecture lessons from the quick-action HUD migration
+## General architecture guidance
 
-- A plugin can correctly separate core wheel logic, HUD rendering, and editor
-  registration even when a feature module still needs later decomposition.
-- Messages/observers are appropriate for selection, lifecycle, action, and
-  value-change communication; transient presentation markers should not become
-  god resources.
-- A data-dependent editor can rebuild on explicit selection/config changes,
-  but must not rebuild on pointer hover or every frame.
-- The radial wheel is a custom widget by design; BSN can own its overlay,
-  panels, labels, icons, and reusable layout primitives while ECS owns wedge
-  materials and hit testing.
-- Feathers scrollbars, buttons, tool buttons, and checkboxes are strong
-  migrations when theme/focus behavior is desired. Keep domain-specific
-  components such as editor toggles and capture markers beside them rather than
-  reimplementing the widget.
+- Keep core domain logic, runtime presentation, and editor registration in
+  clear feature boundaries, even when a feature needs later decomposition.
+- Use messages/observers for selection, lifecycle, action, and value-change
+  communication; transient presentation markers should not become god
+  resources.
+- Rebuild a data-dependent editor only for explicit selection or configuration
+  changes, never for pointer hover or every frame.
+- Custom procedural widgets may retain their rendering, materials, and hit
+  testing in ECS while BSN owns surrounding overlays, panels, labels, icons,
+  and reusable layout primitives.
+- Prefer Feathers controls when its theme and focus behavior fit. Keep truly
+  domain-specific components beside them instead of reimplementing stock
+  controls.

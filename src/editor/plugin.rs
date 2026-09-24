@@ -4,6 +4,7 @@
 //! in focused systems modules, which keeps the plugin boundary declarative and
 //! makes the runtime order easy to audit.
 
+use super::EditorAction;
 use super::{
     apply_action, apply_set_shortcuts, check_edit_shortcut, click_hud_segments,
     editor_capture_gamepad, editor_capture_key, editor_gamepad_nav, editor_keyboard_radial_nav,
@@ -15,7 +16,9 @@ use super::{
 };
 use crate::QuickActionHudPlugin;
 use bevy::prelude::*;
+use bevy::text::TextEditChange;
 use bevy::ui_widgets::Activate;
+use bevy::ui_widgets::ValueChange;
 
 fn on_editor_activate(
     trigger: On<Activate>,
@@ -34,6 +37,79 @@ fn on_editor_activate(
     }
 }
 
+fn on_editor_slider(
+    trigger: On<ValueChange<f32>>,
+    sliders: Query<&super::components::EditorSlider>,
+    mut cfg: ResMut<QuickActionConfig>,
+    mut ui: ResMut<EditorUiState>,
+    mut hud: ResMut<WheelHudState>,
+) {
+    if let Ok(field) = sliders.get(trigger.event_target()) {
+        let action = match &field.0 {
+            EditorAction::SetWheelCooldown { .. }
+            | EditorAction::SetWheelInnerRadius { .. }
+            | EditorAction::SetWheelOpacity { .. }
+            | EditorAction::SetActionCooldown { .. }
+            | EditorAction::SetActionOpacity { .. } => Some(trigger.value),
+            _ => None,
+        };
+        if let Some(value) = action {
+            let edit = match &field.0 {
+                EditorAction::SetWheelCooldown { .. } => EditorAction::SetWheelCooldown { value },
+                EditorAction::SetWheelInnerRadius { .. } => {
+                    EditorAction::SetWheelInnerRadius { value }
+                }
+                EditorAction::SetWheelOpacity { .. } => EditorAction::SetWheelOpacity { value },
+                EditorAction::SetActionCooldown { set, entry, .. } => {
+                    EditorAction::SetActionCooldown {
+                        set: *set,
+                        entry: *entry,
+                        value,
+                    }
+                }
+                EditorAction::SetActionOpacity { set, entry, .. } => {
+                    EditorAction::SetActionOpacity {
+                        set: *set,
+                        entry: *entry,
+                        value,
+                    }
+                }
+                _ => unreachable!(),
+            };
+            apply_action(&edit, &mut cfg, &mut ui, &mut hud);
+        }
+        ui.dirty = true;
+        hud.dirty = true;
+    }
+}
+
+fn on_editor_text_change(
+    trigger: On<TextEditChange>,
+    fields: Query<(
+        &super::components::EditorTextValue,
+        &bevy::text::EditableText,
+    )>,
+    mut cfg: ResMut<QuickActionConfig>,
+    mut ui: ResMut<EditorUiState>,
+    mut hud: ResMut<WheelHudState>,
+) {
+    if let Ok((field, text)) = fields.get(trigger.event_target()) {
+        let value = text.value().to_string();
+        let action = match &field.0 {
+            EditorAction::SetActionName { set, entry, .. } => EditorAction::SetActionName {
+                set: *set,
+                entry: *entry,
+                value,
+            },
+            EditorAction::SetWheelName { .. } => EditorAction::SetWheelName { value },
+            _ => return,
+        };
+        apply_action(&action, &mut cfg, &mut ui, &mut hud);
+        ui.dirty = true;
+        hud.dirty = true;
+    }
+}
+
 /// Registers all editor resources and systems into `app`.
 pub(crate) fn register_editor_systems(app: &mut App) {
     app.init_resource::<EditorUiState>()
@@ -41,6 +117,8 @@ pub(crate) fn register_editor_systems(app: &mut App) {
         .init_resource::<ConfigValidation>()
         .add_message::<crate::touch::TouchDragEvent>()
         .add_observer(on_editor_activate)
+        .add_observer(on_editor_slider)
+        .add_observer(on_editor_text_change)
         .add_systems(
             Update,
             (
@@ -77,6 +155,9 @@ pub(crate) fn register_editor_systems(app: &mut App) {
 }
 
 /// Convenience plugin equivalent to `QuickActionHudPlugin::with_editor()`.
+///
+/// Use this plugin when the application wants the standard retained HUD and
+/// the built-in Feathers-based editor together.
 pub struct QuickActionEditorPlugin;
 
 impl Plugin for QuickActionEditorPlugin {

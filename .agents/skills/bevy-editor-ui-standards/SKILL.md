@@ -5,7 +5,7 @@ description: Enforce Feathers Gallery-based architecture for all Bevy editor UI,
 
 # Bevy Editor UI Standards
 
-Apply this skill automatically whenever editor UI is created, modified, refactored, debugged, or reviewed. It covers radial-menu, button, wheelset, HUD-page, inspector, settings, dialog, toolbar, and future editor tooling.
+Apply this skill automatically whenever editor UI is created, modified, refactored, debugged, or reviewed. It covers inspectors, settings, dialogs, toolbars, and future editor tooling.
 
 Canonical reference: [Bevy Feathers Gallery](https://bevy.org/examples/ui-user-interface/feathers-gallery/). Verify the actual Bevy 0.19 API in this project before using a widget or component; do not invent a Feathers type from a newer release.
 
@@ -13,7 +13,7 @@ Canonical reference: [Bevy Feathers Gallery](https://bevy.org/examples/ui-user-i
 
 - Do not create generic editor buttons that open undocumented dialogs.
 - Do not use temporary popups, ad-hoc modals, or entity-specific one-off editors for editable data.
-- Every editable asset/component gets a dedicated, named inspector window. Examples include `Radial Menu Editor`, `Button Editor`, `Wheelset Editor`, and `HUD Page Editor`.
+- Every editable asset/component gets a dedicated, named inspector window. Name it after the edited domain object, such as `Material Editor`, `Ability Editor`, or `Entity Inspector`.
 - A settings control may select/open the corresponding dedicated inspector, but it must not be the inspector itself or hide undocumented configuration behind a generic popup.
 - Keep one clear owner for the active inspector. Opening a new inspector closes the previous one; selection changes must not reopen unrelated windows.
 
@@ -45,7 +45,7 @@ PropertyGrid
 
 ## Required reusable widgets
 
-Create and reuse these project-owned widget/scene fragments before adding a new control:
+Create and reuse these editor-owned widget/scene fragments before adding a new control:
 
 - `EditorWindow`
 - `PropertyGrid`
@@ -73,41 +73,22 @@ editor/
 │   ├── toggle_field.rs
 │   └── dropdown_field.rs
 └── inspectors/
-    ├── radial_menu.rs
-    ├── button.rs
-    └── wheelset.rs
+    ├── material.rs
+    ├── ability.rs
+    └── entity.rs
 ```
 
 Keep `components.rs`, `events.rs`, `observers.rs`, `ui.rs`, and `plugin.rs` separate when a new editor feature warrants them. Avoid giant UI construction systems.
 
-## Required inspectors
+## Inspector contents
 
-### Radial Menu Editor
+Each dedicated inspector exposes every supported authored property through the
+appropriate typed control. Group related properties with `SectionHeader`; do
+not move individual properties into separate ad-hoc popups.
 
-When `RadialMenu`/`RadialMenuConfig` is editable, the dedicated window must expose:
-
-- Name — `TextField`
-- Thumbstick — `InputCaptureField` with `ThumbstickOnly`
-- Cooldown — `SliderField`
-- Labels — `ToggleField`
-- Icons — `ToggleField`
-- Inner Radius — `SliderField`
-- Opacity — `SliderField`
-
-Additional radial-menu properties belong in the same property grid, grouped with `SectionHeader`; they must not become a separate ad-hoc popup.
-
-### Button Editor
-
-When `QuickAction`/button configuration is editable, the dedicated window must expose:
-
-- Name — `TextField`
-- Button Binding — `InputCaptureField` with `ButtonOnly`
-- Cooldown — `SliderField` when supported by the authored model
-- Labels — `ToggleField` when supported by the authored model
-- Icons — `ToggleField` when supported by the authored model
-- Opacity — `SliderField`
-
-If the current data model lacks a requested property, document that limitation and add the model field/event path before silently omitting the control. Do not invent a fake control that does not update data.
+If the current data model lacks a requested property, document that limitation
+and add the model field/event path before silently omitting the control. Do not
+invent a fake control that does not update data.
 
 ## Input capture
 
@@ -117,14 +98,14 @@ If the current data model lacks a requested property, document that limitation a
 - Current binding display
 - Clear binding action
 - Invalid-device rejection and visible validation feedback
-- Capture consumption so the captured input cannot also close the HUD, activate a button, or trigger a global shortcut
+- Capture consumption so the captured input cannot also trigger an application action or global shortcut
 
 Supported modes:
 
 - `ThumbstickOnly` — accept only analog thumbstick input; reject face buttons, triggers, keyboard, and mouse
 - `ButtonOnly` — accept only gamepad buttons or the explicitly supported digital button devices
 - `KeyboardOnly` — accept only keyboard input
-- `AnyInput` — accept the project-supported input types
+- `AnyInput` — accept the application's supported input types
 
 The capture field emits an event/message or editor action. It does not directly mutate gameplay or authored ECS data from widget construction code.
 
@@ -143,7 +124,7 @@ Widget interaction
 
 Do not wire a widget directly to arbitrary gameplay mutation. Components hold entity state, resources hold genuinely global editor state, and transient selection/capture/window state remains separate from authored configuration.
 
-Every editable value must support immediate preview refresh where meaningful, including opacity, inner radius, cooldown, labels, icons, name, and bindings. Prefer targeted messages/events and `Changed<T>`/`Added<T>` filters over rebuilding the entire UI tree every frame.
+Every editable value must support immediate preview refresh where meaningful. Prefer targeted messages/events and `Changed<T>`/`Added<T>` filters over rebuilding the entire UI tree every frame.
 
 ## Bevy 0.19 and Feathers practices
 
@@ -167,8 +148,8 @@ Automatically flag:
 - Duplicate text fields, sliders, toggles, or binding controls
 - Hardcoded, inconsistent property layouts
 - Missing close buttons, scroll views, property grids, or typed controls
-- Thumbstick capture that accepts non-thumbstick input
-- Captured input leaking into HUD close, activation, or global shortcuts
+- Device-restricted capture that accepts invalid input
+- Captured input leaking into application actions or global shortcuts
 - Live preview values that require a full UI rebuild or do not update
 
 Recommend the smallest incremental refactor toward:
@@ -182,7 +163,7 @@ Recommend the smallest incremental refactor toward:
 
 ## Generation behavior
 
-When asked to create an editor, add settings, or edit radial menus/buttons, produce and implement:
+When asked to create an editor or add editable settings, produce and implement:
 
 1. The dedicated window hierarchy with title bar and close action.
 2. The property-grid rows and typed reusable controls.
