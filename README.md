@@ -12,8 +12,6 @@ A headless, gamepad-driven quick action HUD and radial menu library for [Bevy](h
 |---|---|
 | **Casting modes** | `Vanilla` (button press), `ReleaseToUse` (stick release), `HoldToActivate` (dwell), `Direct` (instant on hover) |
 | **Time scaling** | `Normal`, `Slow(scale)`, or `Pause` virtual time while the radial menu is open |
-| **Multi-item slots** | Each slice holds a `Vec<ActionItem>`; player cycles with thumbstick buttons |
-| **Action data model** | `ActionItem` enum (`Weapon`, `Spell`, `Consumable`, `Shout`, `Custom`) + `ActionBehavior` trait |
 | **Radial menu sets** | A radial menu set contains one or more radial menus and can define unique next/previous menu shortcuts per page |
 | **Hold-to-activate** | Per-radial-menu dwell timer with progress events for UI feedback |
 | **Low-count warnings** | Emit once when a slice's count drops below a threshold |
@@ -45,18 +43,17 @@ authored fields: name, optional description, optional icon, input binding,
 action mapping, hold-action enabled, hold-action mapping, and exit-HUD-on-
 select.
 
-The public compatibility names currently map as follows:
+The authored configuration uses these canonical Rust types:
 
-| Canonical term | Existing Rust type | Alias |
+| Canonical term | Rust type |
 |---|---|---|
-| Page | `ActionSet` | `HudPage` |
-| Radial menu set / wheelset | `RadialMenuSet` | `WheelSetData` |
-| Radial menu / wheel | `RadialMenu` | `WheelData` |
-| Sector / segment / slice | `Sector` | `WheelSlotData` |
-| Button | `QuickAction` | `HudButton` |
+| Page | `ActionSet` |
+| Radial menu set | `RadialMenuSet` |
+| Radial menu | `RadialMenu` |
+| Sector | `Sector` |
+| Button | `QuickAction` |
 
-Original serialized names remain supported so existing RON files continue to
-load. New documentation and UI copy should use the canonical terms.
+New configuration and UI copy use the canonical terms.
 
 ---
 
@@ -129,8 +126,8 @@ fn spawn_wheel(mut commands: Commands) {
             inner_radius: 45.0,
             ..default()
         },
-        WheelState::default(),
-        WheelMenuConfig {
+        RadialMenuState::default(),
+        RadialMenuConfig {
             casting_mode: CastingMode::ReleaseToUse,
             ..default()
         },
@@ -214,47 +211,26 @@ RadialMenu {
 }
 ```
 
-### `WheelMenuConfig`
+### `RadialMenuConfig`
 
 Behaviour configuration — enum variants prevent invalid combinations.
 
 ```rust
-WheelMenuConfig {
-    time_mode:            TimeMode::Slow(0.2),
+RadialMenuConfig {
     casting_mode:         CastingMode::HoldToActivate { duration: 0.8 },
-    toggle_mode:          WheelToggleMode::Hold,
+    toggle_mode:          RadialMenuToggleMode::Hold,
     auto_snap:            true,
     block_gameplay_input: false,
 }
 ```
 
-### `TimeMode`
-
-```rust
-TimeMode::Normal       // no time manipulation
-TimeMode::Slow(0.15)   // slow Time<Virtual> to 15 %
-TimeMode::Pause        // fully freeze virtual time
-```
-
 ### `CastingMode`
 
 ```rust
-CastingMode::Vanilla                         // South/A button confirms
-CastingMode::ReleaseToUse                    // release stick to confirm
-CastingMode::HoldToActivate { duration: 0.8} // dwell for N seconds
-CastingMode::Direct                          // fire immediately on hover
-```
-
-### `Sector` + `ActionItem`
-
-```rust
-commands.spawn((
-    WheelSlice { index: 0 },
-    WheelSlot::new(vec![
-        ActionItem::Weapon { name: "Sword".into(), icon: "⚔️".into() },
-        ActionItem::Weapon { name: "Bow".into(),   icon: "🏹".into() },
-    ]),
-));
+CastingMode::Vanilla
+CastingMode::ReleaseToUse
+CastingMode::HoldToActivate { duration: 0.8 }
+CastingMode::Direct
 ```
 
 ---
@@ -267,9 +243,6 @@ commands.spawn((
 | `WheelMenuHoverChanged { previous, current, menu_entity }` | Hover changes |
 | `WheelOpened { menu_entity }` | First slice hovered this session |
 | `WheelClosed { menu_entity }` | Stick returns to centre |
-| `SlotSelected { slot_index, menu_entity }` | Normalised selection signal |
-| `ActionTriggered { slot_index, menu_entity }` | Prompt to call `ActionBehavior::execute` |
-| `WheelSlotItemChanged { slot_index, previous_item, current_item, menu_entity }` | Slot item cycled |
 | `WheelMenuHoldProgress { index, progress, menu_entity }` | Hold progress 0–1 each frame |
 | `WheelMenuHoldActivated { index, menu_entity }` | Hold threshold reached |
 | `WheelMenuLowCount { index, current, threshold, slice_entity }` | Count crossed low threshold |
@@ -294,9 +267,9 @@ QuickActionConfig(
         ActionSet(
             name: "Combat",
             entries: [
-                WheelSet(WheelSetData(
+                RadialMenuSet(RadialMenuSet(
                     name: "Combat radial menu set",
-                    wheels: [WheelData(name: "Combat Wheel", ...)],
+                    wheels: [RadialMenu(name: "Combat radial menu", ...)],
                 )),
                 Action(QuickAction(
                     name: "Interact",
@@ -318,7 +291,7 @@ The library ships `bsn!`-authored scene builders for `bevy_ui`:
 ```rust
 // Full-screen centered overlay
 commands.spawn_scene(wheel_overlay())
-    .insert((RadialMenu::default(), WheelState::default(), WheelMenuConfig::default()));
+    .insert((RadialMenu::default(), RadialMenuState::default(), RadialMenuConfig::default()));
 
 // Zero-size hub at screen center
 let hub = commands.spawn_scene(wheel_hub()).id();

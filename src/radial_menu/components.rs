@@ -3,7 +3,31 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{CastingMode, TimeMode, WheelToggleMode};
+/// How an action is confirmed and triggered from a radial menu.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+pub enum CastingMode {
+    /// Standard: press the confirm button while hovering a sector.
+    #[default]
+    Vanilla,
+    /// Release the stick from a hovered sector to select it.
+    ReleaseToUse,
+    /// Dwell on a sector for `duration` seconds to trigger it.
+    HoldToActivate { duration: f32 },
+    /// Activate immediately when a new sector is hovered.
+    Direct,
+}
+
+/// How a radial menu opens and closes.
+#[derive(Clone, Default, Serialize, Deserialize, PartialEq, Debug)]
+pub enum RadialMenuToggleMode {
+    /// Press the hotkey once to open; press again to close.
+    Toggle,
+    /// Hold the key or button to keep open; release to close.
+    #[default]
+    Hold,
+    /// Short press toggles; long press uses hold behavior.
+    Hybrid { hold_threshold_secs: f32 },
+}
 
 /// Marks a slice within a wheel menu.
 #[derive(Component, Clone)]
@@ -35,9 +59,8 @@ pub struct RadialMenuState {
 /// Full runtime configuration for a wheel menu.
 #[derive(Component, Clone)]
 pub struct RadialMenuConfig {
-    pub time_mode: TimeMode,
     pub casting_mode: CastingMode,
-    pub toggle_mode: WheelToggleMode,
+    pub toggle_mode: RadialMenuToggleMode,
     pub auto_snap: bool,
     pub block_gameplay_input: bool,
 }
@@ -45,9 +68,8 @@ pub struct RadialMenuConfig {
 impl Default for RadialMenuConfig {
     fn default() -> Self {
         Self {
-            time_mode: TimeMode::Normal,
             casting_mode: CastingMode::Vanilla,
-            toggle_mode: WheelToggleMode::Hold,
+            toggle_mode: RadialMenuToggleMode::Hold,
             auto_snap: true,
             block_gameplay_input: false,
         }
@@ -59,26 +81,6 @@ impl Default for RadialMenuConfig {
 pub struct RadialMenuHoldState {
     pub progress: f32,
     pub holding: bool,
-}
-
-/// Runtime active-wheel state for a wheel set.
-#[derive(Component, Clone)]
-pub struct RadialMenuSetState {
-    pub active: usize,
-    pub count: usize,
-    pub prev_button: GamepadButton,
-    pub next_button: GamepadButton,
-}
-
-impl Default for RadialMenuSetState {
-    fn default() -> Self {
-        Self {
-            active: 0,
-            count: 1,
-            prev_button: GamepadButton::LeftTrigger,
-            next_button: GamepadButton::RightTrigger,
-        }
-    }
 }
 
 /// Runtime item-count data for a slice.
@@ -173,16 +175,12 @@ pub struct RadialMenuHierarchy {
     pub children: Vec<Entity>,
 }
 
-// Legacy runtime names remain aliases, so there is one definition and one
-// implementation for each concept.
-pub type WheelSlice = SectorEntity;
-pub type WheelSliceContent = SectorContent;
-pub type WheelState = RadialMenuState;
-pub type WheelMenuConfig = RadialMenuConfig;
-pub type WheelHoldState = RadialMenuHoldState;
-pub type WheelSet = RadialMenuSetState;
-pub type WheelSliceCount = SectorCount;
-pub type WheelEditMode = RadialMenuEditMode;
-pub type WheelStyle = RadialMenuStyle;
-pub type WheelAudio = RadialMenuAudio;
-pub type WheelHierarchy = RadialMenuHierarchy;
+#[cfg(test)]
+mod tests {
+    use super::RadialMenuToggleMode;
+
+    #[test]
+    fn toggle_mode_default_is_hold() {
+        assert_eq!(RadialMenuToggleMode::default(), RadialMenuToggleMode::Hold);
+    }
+}

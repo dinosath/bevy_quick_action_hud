@@ -3,18 +3,58 @@
 use super::EditorAction;
 use crate::{
     hud_action_field, hud_action_stepper, hud_child, hud_clickable, hud_control_owner,
-    hud_label_or, hud_text, HudContextControl, QuickAction, WheelData, WheelHudAction,
-    WheelSlotData, HUD_AMBER, HUD_BADGE_BORDER, HUD_DIM, HUD_GREEN, HUD_PANEL_CARD, HUD_TEXT,
+    hud_label_or, hud_text, HudContextControl, QuickAction, RadialMenu, Sector, WheelHudAction,
+    WheelTheme, HUD_AMBER, HUD_BADGE_BORDER, HUD_DIM, HUD_GREEN, HUD_PANEL_CARD, HUD_TEXT,
 };
+use bevy::feathers::controls::{ButtonVariant, FeathersButton};
 use bevy::prelude::*;
 
-/// Root entity for the editor sidebar.
-#[derive(Component)]
-pub struct EditorRoot;
-
-/// Scrollable content entity inside the wheel editor panel.
-#[derive(Component)]
-pub struct EditorScrollArea;
+/// A compact editor control used by the in-canvas settings cards.
+///
+/// These controls deliberately use the same `EditorButton`/`Activate`
+/// observer path as the former navigation surface.  That keeps input capture,
+/// undo snapshots, and persistence in one place instead of creating a second
+/// radial-menu configuration protocol for the HUD canvas.
+fn settings_action_button(
+    commands: &mut Commands,
+    parent: Entity,
+    label: &str,
+    value: &str,
+    action: EditorAction,
+    accent: Color,
+) -> Entity {
+    let button = commands
+        .spawn_scene(bsn! {
+            @FeathersButton { @variant: ButtonVariant::Plain }
+            Node {
+                min_height: {Val::Px(28.)},
+                padding: {UiRect::horizontal(Val::Px(8.))},
+                justify_content: JustifyContent::SpaceBetween,
+                align_items: AlignItems::Center,
+                border: {UiRect::all(Val::Px(1.))},
+                border_radius: {BorderRadius::all(Val::Px(4.))},
+            }
+            BackgroundColor({HUD_PANEL_CARD})
+            BorderColor::all(HUD_BADGE_BORDER)
+        })
+        .insert(EditorButton {
+            action,
+            base: HUD_PANEL_CARD,
+        })
+        .id();
+    commands.entity(parent).add_child(button);
+    let left = hud_child(commands, button, hud_text(label, 10., HUD_DIM));
+    let right = hud_child(commands, button, hud_text(value, 10., accent));
+    commands.entity(left).insert(Node {
+        flex_grow: 1.,
+        ..default()
+    });
+    commands.entity(right).insert(Node {
+        flex_shrink: 0.,
+        ..default()
+    });
+    button
+}
 
 /// Temporary hover color used while rendering editable segments.
 #[derive(Component)]
@@ -27,11 +67,10 @@ pub struct EditorButton {
     pub base: Color,
 }
 
-/// Action dispatched by a Feathers checkbox/toggle.
-#[derive(Component, Clone)]
-pub struct EditorToggle {
-    pub action: EditorAction,
-}
+/// Marks the retained settings panel so sector hit testing cannot treat a
+/// click inside the panel as a click on the radial menu underneath it.
+#[derive(Component)]
+pub struct WheelSettingsPanel;
 
 /// Marks the item currently focused by keyboard/gamepad navigation.
 #[derive(Component)]
@@ -265,7 +304,8 @@ pub(crate) fn build_hud_action_editor_card(
 pub(crate) fn spawn_wheel_settings_card(
     commands: &mut Commands,
     parent: Entity,
-    wheel: &WheelData,
+    wheel: &RadialMenu,
+    theme_popup_open: bool,
 ) {
     let card = hud_child(
         commands,
@@ -275,7 +315,7 @@ pub(crate) fn spawn_wheel_settings_card(
                 position_type: PositionType::Absolute,
                 left: {Val::Px(wheel.outer_radius + 24.)},
                 top: {Val::Px(-154.)},
-                width: {Val::Px(264.)},
+                width: {Val::Px(320.)},
                 padding: {UiRect::all(Val::Px(10.))},
                 flex_direction: FlexDirection::Column,
                 row_gap: {Val::Px(7.)},
@@ -283,8 +323,10 @@ pub(crate) fn spawn_wheel_settings_card(
             }
             BackgroundColor({HUD_PANEL_CARD})
             BorderColor::all(HUD_BADGE_BORDER)
+            Button
         },
     );
+    commands.entity(card).insert(WheelSettingsPanel);
     hud_child(
         commands,
         card,
@@ -294,7 +336,129 @@ pub(crate) fn spawn_wheel_settings_card(
     hud_child(
         commands,
         card,
-        hud_text(&format!("{} sectors", wheel.slots.len()), 9., HUD_DIM),
+        hud_text("The selected radial menu owns these settings.", 9., HUD_DIM),
+    );
+
+    // Radial-menu configuration previously lived in the sidebar.  Keep the
+    // controls next to the preview now, using the canonical EditorAction
+    // pathway so all edits still participate in validation and undo/redo.
+    settings_action_button(
+        commands,
+        card,
+        "Name",
+        &wheel.name,
+        EditorAction::EditWheelName,
+        HUD_TEXT,
+    );
+    settings_action_button(
+        commands,
+        card,
+        "Theme",
+        wheel.theme.label(),
+        EditorAction::ToggleWheelThemePopup,
+        HUD_TEXT,
+    );
+    if theme_popup_open {
+        let popup = hud_child(
+            commands,
+            card,
+            bsn! {
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: {Val::Px(10.)},
+                    top: {Val::Px(112.)},
+                    width: {Val::Px(298.)},
+                    padding: {UiRect::all(Val::Px(6.))},
+                    flex_direction: FlexDirection::Column,
+                    row_gap: {Val::Px(5.)},
+                    border: {UiRect::all(Val::Px(1.))},
+                }
+                BackgroundColor({HUD_PANEL_CARD})
+                BorderColor::all(HUD_BADGE_BORDER)
+                Button
+            },
+        );
+        commands.entity(popup).insert(WheelSettingsPanel);
+        settings_action_button(
+            commands,
+            popup,
+            "Dark",
+            if wheel.theme == WheelTheme::Dark {
+                "Selected"
+            } else {
+                ""
+            },
+            EditorAction::SetWheelTheme {
+                theme: WheelTheme::Dark,
+            },
+            HUD_TEXT,
+        );
+        settings_action_button(
+            commands,
+            popup,
+            "Light",
+            if wheel.theme == WheelTheme::Light {
+                "Selected"
+            } else {
+                ""
+            },
+            EditorAction::SetWheelTheme {
+                theme: WheelTheme::Light,
+            },
+            HUD_TEXT,
+        );
+    }
+    settings_action_button(
+        commands,
+        card,
+        "Thumbstick",
+        wheel.stick.label(),
+        EditorAction::CaptureWheelStick,
+        HUD_TEXT,
+    );
+    settings_action_button(
+        commands,
+        card,
+        "Cooldown",
+        &format!("{:.1}s", wheel.cooldown_secs),
+        EditorAction::WheelCooldownDelta { delta: 0.5 },
+        HUD_TEXT,
+    );
+    settings_action_button(
+        commands,
+        card,
+        "Labels",
+        if wheel.show_labels { "On" } else { "Off" },
+        EditorAction::ToggleWheelShowLabels,
+        if wheel.show_labels {
+            HUD_GREEN
+        } else {
+            HUD_DIM
+        },
+    );
+    settings_action_button(
+        commands,
+        card,
+        "Icons",
+        if wheel.show_icon { "On" } else { "Off" },
+        EditorAction::ToggleWheelShowIcon,
+        if wheel.show_icon { HUD_GREEN } else { HUD_DIM },
+    );
+    settings_action_button(
+        commands,
+        card,
+        "Inner radius",
+        &format!("{:.0}", wheel.inner_radius),
+        EditorAction::WheelInnerRadiusDelta { delta: 2. },
+        HUD_TEXT,
+    );
+    settings_action_button(
+        commands,
+        card,
+        "Opacity",
+        &format!("{:.0}%", wheel.opacity * 100.),
+        EditorAction::WheelOpacityDelta { delta: 0.05 },
+        HUD_TEXT,
     );
     let close = hud_clickable(
         commands,
@@ -320,7 +484,7 @@ pub(crate) fn spawn_wheel_settings_card(
 pub(crate) fn spawn_segment_editor_card(
     commands: &mut Commands,
     parent: Entity,
-    slot: &WheelSlotData,
+    slot: &Sector,
     set: usize,
     entry: usize,
     wheel: Option<usize>,

@@ -353,7 +353,7 @@ pub mod audio {
     }
 
     /// Play a wheel audio asset. Called from the `play_wheel_audio` system.
-    pub fn play_wheel_sound(audio: &Option<crate::WheelAudio>, sound_type: &str) {
+    pub fn play_wheel_sound(audio: &Option<crate::RadialMenuAudio>, sound_type: &str) {
         let Some(audio) = audio else { return };
         let path = match sound_type {
             "open" => audio.open.as_deref(),
@@ -380,7 +380,7 @@ pub mod audio {
         pub fn load_buffer(&mut self, _url: &str) {}
         pub fn play(&self, _url: &str) {}
     }
-    pub fn play_wheel_sound(_audio: &Option<crate::WheelAudio>, _sound_type: &str) {}
+    pub fn play_wheel_sound(_audio: &Option<crate::RadialMenuAudio>, _sound_type: &str) {}
 }
 
 /// Plugin that registers virtual keyboard state and WASM audio systems.

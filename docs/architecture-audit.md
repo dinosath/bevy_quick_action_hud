@@ -248,7 +248,7 @@ has no equivalent; document the exception in the migration report.
 
 The platform composition is now extracted to `src/platform.rs`; the RON
 autoload adapter is isolated in `src/persistence.rs`; core wheel runtime
-components are grouped in `src/wheel_core/components.rs`; and named
+components are grouped in `src/radial_menu/components.rs`; and named
 `WheelCoreSet`, `HudSet`, and `EditorSet` ownership seams live in
 `src/scheduling.rs`. Existing local chains are intentionally retained while
 their dependencies are being mapped.
