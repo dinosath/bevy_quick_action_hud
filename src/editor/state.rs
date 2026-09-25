@@ -120,8 +120,6 @@ pub enum EditFocus {
 #[derive(Resource)]
 /// Retained editor interaction state and undo history.
 pub struct EditorUiState {
-    /// Whether editor-owned retained UI needs rebuilding.
-    pub dirty: bool,
     /// Current editor selection.
     pub selection: Selection,
     /// Active text or input-capture target.
@@ -155,7 +153,6 @@ pub struct EditorUiState {
 impl Default for EditorUiState {
     fn default() -> Self {
         Self {
-            dirty: true,
             selection: Selection::None,
             editing: EditFocus::None,
             config_path: crate::CONFIG_FILE.into(),

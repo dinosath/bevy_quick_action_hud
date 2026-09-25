@@ -30,7 +30,6 @@ pub(super) fn apply_set_shortcuts(
             hud.active_set = pages[0];
         }
         hud.active_wheel_entry = 0;
-        hud.dirty = true;
     }
     if shortcut_just_pressed(&cfg.prev_set_key, &keys, &gamepads) {
         if pos > 0 {
@@ -39,7 +38,6 @@ pub(super) fn apply_set_shortcuts(
             hud.active_set = *pages.last().unwrap_or(&hud.active_set);
         }
         hud.active_wheel_entry = 0;
-        hud.dirty = true;
     }
 }
 
@@ -72,10 +70,8 @@ pub(super) fn hud_button_action_shortcuts(
                     // Dry-run: flash the button, no action, no close.
                     hud.flash_action_entry = Some(ei);
                     hud.flash_action_ttl = 0.25;
-                    hud.dirty = true;
                 } else if qa.close_on_select {
                     hud.open = false;
-                    hud.dirty = true;
                 }
             }
         } else if let SetEntry::HudSwitch(hs) = entry {
@@ -90,7 +86,6 @@ pub(super) fn hud_button_action_shortcuts(
                 hud.active_set = hs.target_page;
                 hud.active_wheel_entry = 0;
                 hud.active_wheel_index = 0;
-                hud.dirty = true;
             }
         }
     }
@@ -119,7 +114,6 @@ pub(super) fn hud_wheel_nav(
     if hud.active_wheel_entry >= n {
         hud.active_wheel_entry = 0;
         hud.active_wheel_index = 0;
-        hud.dirty = true;
     }
     let mut wheel_entry = 0usize;
     let mut switch_config: Option<(&str, &str, bool, usize, bool)> = None;
@@ -167,7 +161,6 @@ pub(super) fn hud_wheel_nav(
             hud.active_wheel_index = 0;
         }
         hud.highlighted = None;
-        hud.dirty = true;
     }
     if shortcut_just_pressed(prev_key, &keys, &gamepads) {
         if !is_wheelset {
@@ -182,7 +175,6 @@ pub(super) fn hud_wheel_nav(
             hud.active_wheel_index = wheel_count - 1;
         }
         hud.highlighted = None;
-        hud.dirty = true;
     }
 }
 
@@ -213,14 +205,10 @@ pub(super) fn editor_undo_redo_shortcuts(
             EditorAction::Undo
         };
         apply_action(&action, &mut cfg, &mut ui, &mut hud);
-        hud.dirty = true;
-        ui.dirty = true;
     }
     if keys.just_pressed(KeyCode::KeyY) {
         let action = EditorAction::Redo;
         apply_action(&action, &mut cfg, &mut ui, &mut hud);
-        hud.dirty = true;
-        ui.dirty = true;
     }
 }
 
@@ -272,8 +260,6 @@ pub(super) fn check_edit_shortcut(
             hud.editor_open = true;
             hud.edit_control_focus = Some(0);
         }
-        hud.dirty = true;
-        ui.dirty = true;
     }
 }
 

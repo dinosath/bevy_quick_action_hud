@@ -6,14 +6,15 @@ use bevy::scene::prelude::Scene;
 use bevy::ui_widgets::Button;
 
 use crate::button::Buttons;
+use crate::hud::slot::HudSlot;
 use crate::page_switch::PageSwitches;
 use crate::radial_menu_set::RadialMenuSets;
 use crate::widgets::{
     editor_icon_path, hud_clickable, hud_layer, image_icon, spawn_child, text_label,
 };
 use crate::{
-    HudView, WheelHudAction, HUD_BLUE, HUD_DIM, HUD_DIMMER, HUD_PANEL_CARD, HUD_SIDEBAR_BORDER,
-    HUD_TEXT,
+    HudView, WheelHudAction, WheelHudState, HUD_BLUE, HUD_DIM, HUD_DIMMER, HUD_PANEL_CARD,
+    HUD_SIDEBAR_BORDER, HUD_TEXT,
 };
 
 /// A HUD page, identified by its index in the document.
@@ -30,6 +31,14 @@ pub struct PageBackground(pub usize);
 #[derive(Component, Default, Clone, Copy)]
 #[require(Node = hud_layer(), Pickable = Pickable::IGNORE)]
 pub struct PageTabs;
+
+impl HudSlot for PageTabs {
+    type Key = usize;
+
+    fn key(&self, hud: &WheelHudState) -> usize {
+        hud.active_set
+    }
+}
 
 /// Page `index`, bottom layer first.
 pub(crate) fn page(index: usize) -> impl Scene {

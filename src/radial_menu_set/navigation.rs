@@ -71,7 +71,6 @@ pub(crate) fn hud_stick_nav(
         }
     }
     hud.highlighted = current;
-    hud.dirty = true;
 }
 
 fn thumbstick_axes(binding: &str) -> Option<(GamepadAxis, GamepadAxis)> {

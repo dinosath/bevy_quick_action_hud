@@ -24,10 +24,11 @@ impl HudView<'_> {
 }
 
 #[derive(Resource)]
-/// Runtime state for HUD visibility, selection, and retained rebuilding.
+/// Runtime state for HUD visibility and selection.
+///
+/// The HUD follows changes automatically: config edits respawn it, and each
+/// component slot respawns when the part of this state it shows changes.
 pub struct WheelHudState {
-    /// Whether the retained HUD tree must be rebuilt.
-    pub dirty: bool,
     /// Whether the runtime HUD is open.
     pub open: bool,
     /// Active page index.
@@ -72,7 +73,6 @@ pub struct WheelHudState {
 impl Default for WheelHudState {
     fn default() -> Self {
         Self {
-            dirty: true,
             open: false,
             active_set: 0,
             editor_open: false,

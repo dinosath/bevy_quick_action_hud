@@ -11,4 +11,5 @@ pub use view::PageSwitches;
 /// Registers the observer that fills [`PageSwitches`] slots.
 pub(crate) fn plugin(app: &mut App) {
     app.add_observer(view::fill_page_switches);
+    crate::hud::slot::register::<PageSwitches>(app);
 }

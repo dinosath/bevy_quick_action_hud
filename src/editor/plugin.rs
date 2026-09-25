@@ -10,9 +10,8 @@ use super::{
     editor_capture_gamepad, editor_capture_key, editor_gamepad_nav, editor_keyboard_radial_nav,
     editor_middle_drag, editor_text_input, editor_toolbar_shortcuts, editor_touch_drag,
     editor_undo_redo_shortcuts, fix_plain_button_initial_bg, hud_button_action_shortcuts,
-    hud_wheel_nav, is_nav_only_action, process_hud_buttons, rebuild_editor, scroll_editor_to_focus,
-    validate_config, ConfigValidation, EditorButton, EditorUiState, HudMiddleDrag,
-    QuickActionConfig, WheelHudState,
+    hud_wheel_nav, process_hud_buttons, scroll_editor_to_focus, validate_config, ConfigValidation,
+    EditorButton, EditorUiState, HudMiddleDrag, QuickActionConfig, WheelHudState,
 };
 use crate::QuickActionHudPlugin;
 use bevy::prelude::*;
@@ -30,10 +29,6 @@ fn on_editor_activate(
     if let Ok(btn) = btns.get(trigger.event_target()) {
         let action = btn.action.clone();
         apply_action(&action, &mut cfg, &mut ui, &mut hud);
-        ui.dirty = true;
-        if !is_nav_only_action(&action) {
-            hud.dirty = true;
-        }
     }
 }
 
@@ -78,8 +73,6 @@ fn on_editor_slider(
             };
             apply_action(&edit, &mut cfg, &mut ui, &mut hud);
         }
-        ui.dirty = true;
-        hud.dirty = true;
     }
 }
 
@@ -105,8 +98,6 @@ fn on_editor_text_change(
             _ => return,
         };
         apply_action(&action, &mut cfg, &mut ui, &mut hud);
-        ui.dirty = true;
-        hud.dirty = true;
     }
 }
 
@@ -140,7 +131,6 @@ pub(crate) fn register_editor_systems(app: &mut App) {
                 editor_undo_redo_shortcuts,
                 editor_touch_drag,
                 validate_config,
-                rebuild_editor,
             )
                 .chain()
                 .in_set(crate::scheduling::EditorSet::Runtime),

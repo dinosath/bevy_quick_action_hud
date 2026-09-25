@@ -82,9 +82,12 @@ When all controls appear/disappear or a config panel opens unexpectedly:
    hover is reacquired.
 5. Check z-order, overlapping hit targets, and whether contextual toolbar
    buttons intercept input intended for the selected component.
-6. Gate structural rebuilds on messages or a dirty flag. Update visual state in
-   place for hover/focus/pressed changes. Use `Changed<T>`, `Added<T>`, and
-   narrow queries where appropriate.
+6. Do not gate rebuilds on hand-set dirty flags. Respawn the whole tree only
+   on document (`Res::is_changed`) changes; toggle `Display::None` for
+   open/close and inactive pages; give each slot a key derived from state and
+   respawn only that slot when its key changes. Keep hover-only state out of
+   keys (update it in place) to avoid respawn feedback loops. Use
+   `Changed<T>`, `Added<T>`, and narrow queries where appropriate.
 
 Input capture must run before global shortcuts. The capture system should mark
 the event consumed, and application-level input systems must honor that

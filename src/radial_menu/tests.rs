@@ -44,26 +44,18 @@ fn sector_resolution_respects_partial_arcs() {
 }
 
 #[test]
-fn sector_rendering_stays_inside_the_outer_circle() {
-    let outer_radius = 270.0;
-    let sector_span = std::f32::consts::TAU / 6.0;
-    for row in 0..RADIAL_MENU_SECTOR_STRIPS {
-        let strip_height = outer_radius / RADIAL_MENU_SECTOR_STRIPS as f32;
-        let radius = outer_radius - (row as f32 + 0.5) * strip_height;
-        let width = sector_strip_width(radius, outer_radius, sector_span);
-        let half_width = width * 0.5;
-        assert!(radius.powi(2) + half_width.powi(2) <= outer_radius.powi(2) + 0.01);
-    }
-}
-
-#[test]
-fn sector_rendering_opens_toward_the_outer_ring() {
-    let outer_radius = 270.0;
-    let span = std::f32::consts::TAU / 6.0;
-    let inner_width = sector_strip_width(132.0, outer_radius, span);
-    let middle_width = sector_strip_width(200.0, outer_radius, span);
-
-    assert!(middle_width > inner_width);
+fn conic_wedges_match_menu_sector_angles() {
+    let menu = RadialMenu::default();
+    // Sector 0 is centered at twelve o'clock: clockwise from -45° to +45°.
+    let (begin, span) = conic_sector(&menu, 0);
+    let expected_span = std::f32::consts::FRAC_PI_2 - menu.gap;
+    assert!((span - expected_span).abs() < 1e-5);
+    let expected_begin = std::f32::consts::TAU - std::f32::consts::FRAC_PI_4 + menu.gap * 0.5;
+    assert!((begin - expected_begin).abs() < 1e-5);
+    // Sector 1 (counter-clockwise from sector 0) is centered at nine o'clock.
+    let (begin, span) = conic_sector(&menu, 1);
+    let center = begin + span * 0.5;
+    assert!((center - 3.0 * std::f32::consts::FRAC_PI_2).abs() < 1e-5);
 }
 
 #[test]
@@ -129,15 +121,10 @@ fn default_layout_matches_measured_reference_image() {
     assert!(left_endpoint.distance(Vec2::new(-216.5, 219.1)) < 0.2);
     assert!(right_endpoint.distance(Vec2::new(216.5, 219.1)) < 0.2);
 
-    // Panels run from the selected outer edge to the hub.  This guards
-    // against reintroducing the old `outer_radius - inner_radius` panel
-    // height, which produced a flat inner trapezoid instead of the
-    // reference's concave circular boundary.
+    // Hit panels run from the selected outer edge to the hub center, so the
+    // hub covers their inner end.
     let panel_height = radial_menu_sector_panel_height(selected_radius);
-    let final_strip_radius = selected_radius
-        - (RADIAL_MENU_SECTOR_STRIPS as f32 - 0.5)
-            * (panel_height / RADIAL_MENU_SECTOR_STRIPS as f32);
-    assert!(final_strip_radius < radial_menu_hub_radius(&menu));
+    assert!(selected_radius - panel_height < radial_menu_hub_radius(&menu));
     for (index, expected) in expected_centers.into_iter().enumerate() {
         assert!(slice_center(&menu, index).distance(expected) < 1e-4);
     }
@@ -194,7 +181,6 @@ fn default_reference_presentation_locks_colors_spacing_and_control_style() {
     assert_eq!(RADIAL_MENU_SELECTED_OUTLINE_WIDTH, 2.0);
     assert_eq!(RADIAL_MENU_HUB_OVERLAP, 4.0);
     assert_eq!(RADIAL_MENU_SECTOR_CONTENT_PADDING, 6.0);
-    assert_eq!(RADIAL_MENU_SECTOR_STRIPS, 256);
 
     let thickness = menu.outer_radius - menu.inner_radius;
     let label_size = (thickness * RADIAL_MENU_LABEL_SIZE_RATIO).clamp(

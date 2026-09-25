@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Button;
 
 use crate::editor::overlays::spawn_edge_affordances;
+use crate::hud::slot::HudSlot;
 use crate::widgets::{hud_layer, image_icon, parse_hex_color, spawn_child, text_label};
 use crate::{
     HudView, QuickAction, WheelHudAction, WheelHudButton, WheelHudState, HUD_BADGE_BORDER, HUD_DIM,
@@ -18,6 +19,14 @@ const BUTTON_STACK_STEP: f32 = 36.0;
 #[derive(Component, Default, Clone, Copy)]
 #[require(Node = hud_layer(), Pickable = Pickable::IGNORE)]
 pub struct Buttons(pub usize);
+
+impl HudSlot for Buttons {
+    type Key = (bool, Option<usize>);
+
+    fn key(&self, hud: &WheelHudState) -> Self::Key {
+        (hud.editor_open, hud.flash_action_entry)
+    }
+}
 
 pub(crate) fn fill_buttons(
     add: On<Add<Buttons>>,
@@ -186,13 +195,12 @@ fn spawn_binding_badge(commands: &mut Commands, row: Entity, key: &str, view: &H
     spawn_child(commands, badge, text_label(label, 8., HUD_DIM));
 }
 
-/// Ends the dry-run flash of a triggered button and requests a rebuild.
+/// Ends the dry-run flash of a triggered button.
 pub(crate) fn tick_dry_run_flash(time: Res<Time>, mut hud: ResMut<WheelHudState>) {
-    if hud.flash_action_entry.is_some() && !hud.dirty {
+    if hud.flash_action_entry.is_some() {
         hud.flash_action_ttl -= time.delta_secs();
         if hud.flash_action_ttl <= 0.0 {
             hud.flash_action_entry = None;
-            hud.dirty = true;
         }
     }
 }

@@ -59,7 +59,6 @@ pub(super) fn editor_text_input(
     mut messages: MessageReader<KeyboardInput>,
     mut cfg: ResMut<QuickActionConfig>,
     mut ui: ResMut<EditorUiState>,
-    mut hud: ResMut<WheelHudState>,
 ) {
     if !matches!(
         ui.editing,
@@ -115,8 +114,6 @@ pub(super) fn editor_text_input(
     }
     if changed {
         sync_wheelset_visuals(&mut cfg, ui.selection);
-        ui.dirty = true;
-        hud.dirty = true;
     }
 }
 
@@ -199,7 +196,6 @@ pub(super) fn editor_capture_key(
         }
         ui.capture_consumed = true;
         ui.editing = EditFocus::None;
-        ui.dirty = true;
         return;
     }
 }
@@ -208,7 +204,6 @@ pub(super) fn editor_capture_gamepad(
     gamepads: Query<&Gamepad>,
     mut cfg: ResMut<QuickActionConfig>,
     mut ui: ResMut<EditorUiState>,
-    mut hud: ResMut<WheelHudState>,
 ) {
     let focus = ui.editing;
     if !matches!(
@@ -274,8 +269,6 @@ pub(super) fn editor_capture_gamepad(
                 }
                 ui.editing = EditFocus::None;
                 ui.capture_consumed = true;
-                ui.dirty = true;
-                hud.dirty = true;
                 return;
             }
         }
@@ -352,7 +345,6 @@ pub(super) fn editor_capture_gamepad(
                 }
                 ui.editing = EditFocus::None;
                 ui.capture_consumed = true;
-                ui.dirty = true;
                 return;
             }
         }

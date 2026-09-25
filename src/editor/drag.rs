@@ -13,7 +13,7 @@ pub(super) fn editor_middle_drag(
     mouse: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     mut cfg: ResMut<QuickActionConfig>,
-    mut hud: ResMut<WheelHudState>,
+    hud: Res<WheelHudState>,
     mut drag: ResMut<HudMiddleDrag>,
 ) {
     if !hud.open || !hud.editor_open {
@@ -52,7 +52,6 @@ pub(super) fn editor_middle_drag(
             if let Some(action) = action_at(&mut cfg, set, entry) {
                 action.offset_x = (action.offset_x + delta.x).clamp(-2000.0, 2000.0);
                 action.offset_y = (action.offset_y - delta.y).clamp(-2000.0, 2000.0);
-                hud.dirty = true;
             }
         }
         Some(MiddleDragTarget::Wheel { set, entry, wheel }) => {
@@ -61,7 +60,6 @@ pub(super) fn editor_middle_drag(
                 w.offset_y = (w.offset_y - delta.y).clamp(-2000.0, 2000.0);
             }
             sync_wheelset_visuals(&mut cfg, Selection::Wheel { set, entry, wheel });
-            hud.dirty = true;
         }
         None => {}
     }
@@ -78,7 +76,7 @@ pub(super) fn editor_middle_drag(
 pub(super) fn editor_touch_drag(
     mut drag_events: MessageReader<crate::touch::TouchDragEvent>,
     cfg: Res<QuickActionConfig>,
-    mut hud: ResMut<WheelHudState>,
+    hud: Res<WheelHudState>,
     mut ui: ResMut<EditorUiState>,
     windows: Query<&Window>,
 ) {
@@ -112,8 +110,6 @@ pub(super) fn editor_touch_drag(
                                 set: hud.active_set,
                                 entry: ei,
                             };
-                            ui.dirty = true;
-                            hud.dirty = true;
                         }
                     }
                 }

@@ -1,29 +1,7 @@
 //! Shared editor data accessors and action classification helpers.
 
-use super::{EditorAction, Selection};
+use super::Selection;
 use crate::*;
-
-pub(super) fn is_nav_only_action(action: &EditorAction) -> bool {
-    matches!(
-        action,
-        EditorAction::EditSetName { .. }
-            | EditorAction::EditName { .. }
-            | EditorAction::EditWheelName
-            | EditorAction::CaptureWheelStick
-            | EditorAction::EditWheelSetName { .. }
-            | EditorAction::EditSlotName { .. }
-            | EditorAction::EditSlotIcon { .. }
-            | EditorAction::EditSetBgImage { .. }
-            | EditorAction::CaptureKey { .. }
-            | EditorAction::CaptureNextSetKey
-            | EditorAction::CapturePrevSetKey
-            | EditorAction::CaptureEditShortcut
-            | EditorAction::CaptureWheelSetSwitchKey { .. }
-            | EditorAction::CaptureNextWheelKey { .. }
-            | EditorAction::CapturePrevWheelKey { .. }
-            | EditorAction::Save
-    )
-}
 
 /// Fixes a one-frame flash caused by feathers initialising every `FeathersButton` with
 /// `ThemeBackgroundColor(BUTTON_BG)` (opaque gray) regardless of variant.  The `update_button_styles`

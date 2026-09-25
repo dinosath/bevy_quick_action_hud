@@ -21,7 +21,7 @@ mod widgets;
 
 pub use button::{ActionShape, HudButton, PositionMode, QuickAction};
 pub use hud::*;
-use hud::{detect_gamepad_icon_set, hud_button_feedback, hud_control_owner, rebuild_hud};
+use hud::{detect_gamepad_icon_set, hud_button_feedback, hud_control_owner, rebuild_hud, show_hud};
 pub use page::{
     count_radial_menu_sets, enabled_hud_pages, ActionSet, HudComponent, HudPage, SetEntry,
 };
@@ -254,6 +254,7 @@ impl Plugin for QuickActionHudPlugin {
                         radial_menu_set::hud_stick_nav,
                         button::tick_dry_run_flash,
                         rebuild_hud,
+                        show_hud,
                     )
                         .chain()
                         .in_set(scheduling::HudSet::Runtime),
@@ -291,8 +292,14 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    /// Spawns the HUD headlessly for `state` and returns every HUD button action.
+    /// Spawns the default first page headlessly for `state` and returns every HUD button action.
     fn spawn_hud(state: WheelHudState) -> (App, Vec<WheelHudAction>) {
+        let mut cfg = QuickActionConfig::default();
+        cfg.sets.truncate(1);
+        spawn_hud_with(cfg, state)
+    }
+
+    fn spawn_hud_with(cfg: QuickActionConfig, state: WheelHudState) -> (App, Vec<WheelHudAction>) {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -300,7 +307,7 @@ mod tests {
             bevy::scene::ScenePlugin,
         ))
         .init_asset::<Image>()
-        .init_resource::<QuickActionConfig>()
+        .insert_resource(cfg)
         .insert_resource(state)
         .init_resource::<GamepadIconSet>()
         .add_plugins((
@@ -310,7 +317,7 @@ mod tests {
             page_switch::plugin,
             editor::hud_plugin,
         ))
-        .add_systems(Update, rebuild_hud);
+        .add_systems(Update, (rebuild_hud, show_hud).chain());
         app.update();
         let world = app.world_mut();
         let actions = world
@@ -348,6 +355,82 @@ mod tests {
         assert!(actions
             .iter()
             .any(|a| matches!(a, WheelHudAction::ToggleEditor)));
+    }
+
+    #[test]
+    fn highlight_change_respawns_only_the_radial_menu() {
+        let (mut app, _) = spawn_hud(WheelHudState {
+            open: true,
+            ..default()
+        });
+        let mut roots = app
+            .world_mut()
+            .query_filtered::<Entity, With<WheelHudRoot>>();
+        let hub_items = |app: &mut App| {
+            let world = app.world_mut();
+            world
+                .query_filtered::<Option<&Children>, With<radial_menu::widget::RadialMenuCenter>>()
+                .single(world)
+                .unwrap()
+                .map_or(0, |c| c.len())
+        };
+        let root = roots.single(app.world()).unwrap();
+        assert_eq!(hub_items(&mut app), 0);
+
+        app.world_mut().resource_mut::<WheelHudState>().highlighted = Some((0, 0, Some(0), 1));
+        app.update();
+
+        assert_eq!(roots.single(app.world()).unwrap(), root);
+        // The hub now shows the highlighted sector's info.
+        assert_eq!(hub_items(&mut app), 1);
+    }
+
+    #[test]
+    fn hud_state_changes_toggle_display_without_rebuilding() {
+        let (mut app, _) = spawn_hud_with(QuickActionConfig::default(), WheelHudState::default());
+
+        let world = app.world_mut();
+        let root = world
+            .query_filtered::<Entity, With<WheelHudRoot>>()
+            .single(world)
+            .unwrap();
+        let display = |app: &mut App| {
+            let world = app.world_mut();
+            let root = world
+                .query_filtered::<&Node, With<WheelHudRoot>>()
+                .single(world)
+                .unwrap()
+                .display;
+            let mut pages: Vec<_> = world
+                .query::<(&page::Page, &Node)>()
+                .iter(world)
+                .map(|(page, node)| (page.0, node.display))
+                .collect();
+            pages.sort_by_key(|(index, _)| *index);
+            (root, pages)
+        };
+        // Closed: the HUD exists but is hidden; only page 0 is shown inside it.
+        assert_eq!(
+            display(&mut app),
+            (Display::None, vec![(0, Display::Flex), (1, Display::None)])
+        );
+
+        let mut hud = app.world_mut().resource_mut::<WheelHudState>();
+        hud.open = true;
+        hud.active_set = 1;
+        app.update();
+        assert_eq!(
+            display(&mut app),
+            (Display::Flex, vec![(0, Display::None), (1, Display::Flex)])
+        );
+        let world = app.world_mut();
+        assert_eq!(
+            world
+                .query_filtered::<Entity, With<WheelHudRoot>>()
+                .single(world)
+                .unwrap(),
+            root
+        );
     }
 
     #[test]
@@ -714,7 +797,6 @@ mod tests {
     #[test]
     fn wheel_hud_state_default() {
         let state = WheelHudState::default();
-        assert!(state.dirty);
         assert!(!state.open);
         assert!(!state.editor_open);
         assert_eq!(state.active_set, 0);
@@ -975,4 +1057,3 @@ mod tests {
         assert!((RadialMenuGeometry::default().inner_radius - 145.0).abs() < f32::EPSILON);
     }
 }
-

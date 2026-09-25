@@ -4,7 +4,7 @@
 //! scene construction remains in `components` and action mutation remains in
 //! `action_apply`.
 
-use super::{apply_action, is_nav_only_action, save_config, wheel_at};
+use super::{apply_action, save_config, wheel_at};
 use super::{EditFocus, EditorAction, EditorButton, EditorUiState, FocusedEditorItem, Selection};
 use crate::*;
 use bevy::prelude::*;
@@ -84,7 +84,6 @@ pub(super) fn editor_gamepad_nav(
         };
         if let Some(focus) = toolbar_focus {
             hud.edit_control_focus = Some(focus);
-            hud.dirty = true;
             return;
         }
         if gamepad.just_pressed(GamepadButton::DPadUp)
@@ -100,8 +99,6 @@ pub(super) fn editor_gamepad_nav(
                     };
                     hud.highlighted = Some((set, entry, wheel, 0));
                     hud.edit_control_focus = Some(0);
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
             }
             return;
@@ -114,12 +111,9 @@ pub(super) fn editor_gamepad_nav(
                         set: hud.active_set,
                     };
                     apply_action(&action, &mut cfg, &mut ui, &mut hud);
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 Some(10) => {
                     hud.settings_open = !hud.settings_open;
-                    hud.dirty = true;
                 }
                 _ => {}
             }
@@ -155,8 +149,6 @@ pub(super) fn editor_gamepad_nav(
                     };
                     hud.highlighted = Some((set, entry, wheel, next_slot));
                     hud.edit_control_focus = Some(0);
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
             }
             return;
@@ -171,7 +163,6 @@ pub(super) fn editor_gamepad_nav(
                 (current + 7) % 8
             };
             hud.edit_control_focus = Some(next);
-            hud.dirty = true;
             return;
         }
         if gamepad.just_pressed(GamepadButton::South) {
@@ -203,8 +194,6 @@ pub(super) fn editor_gamepad_nav(
                         };
                         hud.highlighted = Some((set, entry, wheel, insert_at));
                         hud.edit_control_focus = Some(0);
-                        hud.dirty = true;
-                        ui.dirty = true;
                     }
                 }
                 2 => {
@@ -220,8 +209,6 @@ pub(super) fn editor_gamepad_nav(
                             };
                             hud.highlighted = Some((set, entry, wheel, next_slot));
                             hud.edit_control_focus = Some(0);
-                            hud.dirty = true;
-                            ui.dirty = true;
                         }
                     }
                 }
@@ -238,8 +225,6 @@ pub(super) fn editor_gamepad_nav(
                         _ => unreachable!("sector editor focus is constrained to 5..=6"),
                     };
                     ui.capture_skip = true;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 _ => {}
             }
@@ -268,7 +253,6 @@ pub(super) fn editor_gamepad_nav(
             } else {
                 ui.navfocus = ui.navfocus.saturating_sub(1);
             }
-            ui.dirty = true;
         } else {
             // Same direction — accumulate time and repeat after delays.
             ui.nav_hold_timer += time.delta_secs();
@@ -283,9 +267,6 @@ pub(super) fn editor_gamepad_nav(
                     } else {
                         ui.navfocus = ui.navfocus.saturating_sub(1);
                     }
-                }
-                if new_steps > 0 {
-                    ui.dirty = true;
                 }
             }
         }
@@ -306,10 +287,6 @@ pub(super) fn editor_gamepad_nav(
         if let Some(action) = action {
             let sel_before = ui.selection;
             apply_action(&action, &mut cfg, &mut ui, &mut hud);
-            ui.dirty = true;
-            if !is_nav_only_action(&action) {
-                hud.dirty = true;
-            }
             // If we just entered a capture mode, mark capture_skip so that
             // editor_capture_gamepad ignores the South press that triggered this.
             if ui.editing != EditFocus::None {
@@ -324,8 +301,6 @@ pub(super) fn editor_gamepad_nav(
     } else if gamepad.just_pressed(GamepadButton::East) {
         let sel_before = ui.selection;
         apply_action(&EditorAction::NavBack, &mut cfg, &mut ui, &mut hud);
-        ui.dirty = true;
-        hud.dirty = true;
         if ui.selection != sel_before {
             ui.navfocus = 0;
         }
@@ -353,19 +328,15 @@ pub(super) fn editor_toolbar_shortcuts(
     if save {
         save_config(&cfg, &ui.config_path);
         hud.edit_control_focus = Some(8);
-        hud.dirty = true;
     } else if add {
         let action = EditorAction::AddAction {
             set: hud.active_set,
         };
         apply_action(&action, &mut cfg, &mut ui, &mut hud);
         hud.edit_control_focus = Some(9);
-        hud.dirty = true;
-        ui.dirty = true;
     } else if settings {
         hud.settings_open = !hud.settings_open;
         hud.edit_control_focus = Some(10);
-        hud.dirty = true;
     }
 }
 
@@ -389,7 +360,6 @@ pub(super) fn editor_keyboard_radial_nav(
         } else {
             (current + 7) % 8
         });
-        hud.dirty = true;
         return;
     }
     if !(keys.just_pressed(KeyCode::Enter) || keys.just_pressed(KeyCode::Space)) {
@@ -417,8 +387,6 @@ pub(super) fn editor_keyboard_radial_nav(
                 };
                 hud.highlighted = Some((set, entry, wheel, insert_at));
                 hud.edit_control_focus = Some(0);
-                hud.dirty = true;
-                ui.dirty = true;
             }
         }
         5..=6 => {
@@ -434,8 +402,6 @@ pub(super) fn editor_keyboard_radial_nav(
                 _ => unreachable!("sector editor focus is constrained to 5..=6"),
             };
             ui.capture_skip = true;
-            hud.dirty = true;
-            ui.dirty = true;
         }
         2 => {
             if let Some(w) = wheel_at(&mut cfg, Selection::Wheel { set, entry, wheel }) {
@@ -450,8 +416,6 @@ pub(super) fn editor_keyboard_radial_nav(
                     };
                     hud.highlighted = Some((set, entry, wheel, next_slot));
                     hud.edit_control_focus = Some(0);
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
             }
         }

@@ -220,9 +220,18 @@ pub struct SectorActivated { pub entity: Entity, pub sector: usize }
 - Rebuild the widget subtree only when the authored document changes
   (sector count, config reload). Rebuild only the widget, never the whole HUD
   root.
-- A highlighted-sector change should not despawn and respawn hundreds of
-  geometry strips. Keep both the normal and highlighted panel variants, or
-  patch the highlighted panel only.
+- Draw pie/annular sectors as one circular node with a `ConicGradient`
+  background (`BackgroundGradient`), hard stops `[color@0, color@span,
+  NONE@span]` and `with_start(angle)`; cover the inner edge with the hub.
+  Never approximate curved shapes with hundreds of thin `Node` strips.
+  Several same-colored sectors fit in one node: one conic gradient with a
+  hard-stop range per sector. A `BorderGradient` on the same node draws an
+  outline arc without an extra node.
+  Conic angles are clockwise from twelve o'clock (screen space, y down).
+  Keep picking on a separate invisible panel node with `Pickable::IGNORE`
+  on the gradient node.
+- A highlighted-sector change should patch the highlighted sector only and
+  must not draw the selected sector twice.
 - In 0.19 and 0.20, `despawn()` is already recursive through `ChildOf`
   (`linked_spawn`). Hand-written recursive despawn helpers are redundant.
 

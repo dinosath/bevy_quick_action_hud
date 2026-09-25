@@ -3,15 +3,18 @@
 //! Consumers find the parts they decorate through [`SectorIndex`],
 //! [`RadialMenuHub`], and [`RadialMenuCenter`] instead of returned entity handles.
 
+use std::f32::consts::TAU;
+
 use bevy::picking::hover::PickingInteraction;
+use bevy::picking::Pickable;
 use bevy::prelude::*;
 use bevy::scene::prelude::{Scene, SceneList};
 use bevy::scene::EntityScene;
+use bevy::ui::{AngularColorStop, BackgroundGradient, BorderGradient, ConicGradient, UiPosition};
 use bevy::ui_widgets::Button;
 
 use super::geometry::{
-    radial_menu_hub_radius, rendered_sector_outer_radius, sector_strip_width, slice_angles,
-    SectorPanel, RADIAL_MENU_SECTOR_STRIPS,
+    conic_sector, radial_menu_hub_radius, rendered_sector_outer_radius, slice_angles, SectorPanel,
 };
 use super::model::{RadialMenu, Sector};
 use super::style::*;
@@ -45,6 +48,7 @@ pub(crate) fn radial_menu(menu: &RadialMenu, highlighted: Option<usize>) -> impl
     let anchor = radial_menu_anchor();
     let hub = radial_menu_hub(menu);
     let background = radial_menu_background(menu.outer_radius, colors.background);
+    let ring = radial_menu_sector_ring(menu, selected);
     let sectors: Vec<Box<dyn SceneList>> = menu
         .slots
         .iter()
@@ -54,8 +58,7 @@ pub(crate) fn radial_menu(menu: &RadialMenu, highlighted: Option<usize>) -> impl
                 menu,
                 index,
                 sector,
-                highlighted == Some(index),
-                &colors,
+                selected == Some(index),
             ))
         })
         .collect();
@@ -64,19 +67,15 @@ pub(crate) fn radial_menu(menu: &RadialMenu, highlighted: Option<usize>) -> impl
         colors.outer_border,
         colors.outer_border_width,
     );
-    // Redrawn above the outer ring so the selected sector overlaps it.
-    let selected_overlay: Vec<Box<dyn SceneList>> = selected
-        .map(|index| {
-            let panel = SectorPanel::new(menu, index, true);
-            boxed(radial_menu_sector(
-                panel,
-                colors.selected_fill,
-                Some(colors.highlight),
-                None,
-            ))
-        })
-        .into_iter()
-        .collect();
+    // Drawn above the outer ring so the selected sector overlaps it.
+    let selected_wedge = selected.map(|index| {
+        EntityScene(radial_menu_selected_wedge(
+            menu,
+            index,
+            colors.selected_fill,
+            colors.highlight,
+        ))
+    });
     let dividers = radial_menu_dividers(menu, highlighted, colors.highlight);
     let center = radial_menu_center(menu, selected, &colors);
     bsn! {
@@ -86,9 +85,10 @@ pub(crate) fn radial_menu(menu: &RadialMenu, highlighted: Option<usize>) -> impl
             @{hub}
             Children [
                 @{background}
+                -- {ring}
                 -- {sectors}
                 -- @{outer_ring}
-                -- {selected_overlay}
+                -- {selected_wedge}
                 -- {dividers}
                 -- @{center}
             ]
@@ -163,74 +163,25 @@ fn radial_menu_outer_ring(outer_radius: f32, color: Color, border_width: f32) ->
     }
 }
 
-/// One interactive sector: its panel, upright content, and [`SectorIndex`].
+/// One interactive sector: an invisible rotated hit panel holding its upright content.
 fn radial_menu_sector_entity(
     menu: &RadialMenu,
     index: usize,
     sector: &Sector,
     selected: bool,
-    colors: &RadialMenuColors,
 ) -> impl Scene {
     let panel = SectorPanel::new(menu, index, selected);
-    let content = boxed(radial_menu_sector_content(
-        menu, index, sector, panel, selected,
-    ));
-    let body = if selected {
-        radial_menu_sector(
-            panel,
-            colors.selected_fill,
-            Some(colors.highlight),
-            Some(content),
-        )
-    } else {
-        radial_menu_sector(panel, RADIAL_MENU_SECTOR, None, Some(content))
-    };
-    bsn! {
-        SectorIndex(index)
-        Button
-        PickingInteraction::None
-        @{body}
-    }
-}
-
-/// Declares one native Bevy UI annular sector panel.
-///
-/// Sectors use the radial shape shared by every menu: native UI strips
-/// constrained to the menu's outer circle. This keeps rendering in BSN and
-/// avoids a custom material or shader.
-fn radial_menu_sector(
-    panel: SectorPanel,
-    color: Color,
-    outline: Option<Color>,
-    content: Option<Box<dyn SceneList>>,
-) -> impl Scene {
     let SectorPanel {
         center,
         width,
         height,
-        outer_radius,
         rotation,
-        ..
     } = panel;
-    let mut children: Vec<Box<dyn SceneList>> = Vec::with_capacity(RADIAL_MENU_SECTOR_STRIPS * 2);
-    children.extend(sector_strips(
-        panel,
-        outer_radius,
-        height,
-        0.0,
-        outline.unwrap_or(color),
-    ));
-    if outline.is_some() {
-        // Pull the fill back from the outer edge so the strips below show as
-        // the selected sector's curved outline.
-        let inset = RADIAL_MENU_SELECTED_OUTLINE_WIDTH;
-        let fill_radius = (outer_radius - inset).max(0.0);
-        let fill_height = (height - inset).max(0.0);
-        children.extend(sector_strips(panel, fill_radius, fill_height, inset, color));
-    }
-    children.extend(content);
-
+    let content = radial_menu_sector_content(menu, index, sector, panel, selected);
     bsn! {
+        SectorIndex(index)
+        Button
+        PickingInteraction::None
         Node {
             position_type: PositionType::Absolute,
             left:   { Val::Px(center.x - width / 2.0) },
@@ -240,35 +191,75 @@ fn radial_menu_sector(
         }
         // Native UI resolves `UiTransform` during layout; `Transform` would not rotate UI.
         UiTransform::from_rotation(Rot2::radians(rotation))
-        Children [{ children }]
+        Children [ @{content} ]
     }
 }
 
-/// Horizontal strips approximating an annular sector of `radius`, starting at `top`.
-fn sector_strips(
-    panel: SectorPanel,
-    radius: f32,
-    height: f32,
-    top: f32,
-    color: Color,
-) -> impl Iterator<Item = Box<dyn SceneList>> {
-    let strip_height = height / RADIAL_MENU_SECTOR_STRIPS as f32;
-    (0..RADIAL_MENU_SECTOR_STRIPS).map(move |index| {
-        let radial_distance = radius - (index as f32 + 0.5) * strip_height;
-        let strip_width = sector_strip_width(radial_distance, radius, panel.span);
-        let left = (panel.width - strip_width) * 0.5;
-        let top = top + index as f32 * strip_height;
-        boxed(bsn! {
-            Node {
-                position_type: PositionType::Absolute,
-                left: { Val::Px(left) },
-                top: { Val::Px(top) },
-                width: { Val::Px(strip_width) },
-                height: { Val::Px(strip_height + 2.0) },
-            }
-            BackgroundColor({ color })
+/// A conic gradient painting `color` over each `(offset, span)` range after `start`.
+fn sector_gradient(start: f32, ranges: &[(f32, f32)], color: Color) -> ConicGradient {
+    let mut stops = vec![AngularColorStop::new(Color::NONE, 0.)];
+    for &(offset, span) in ranges {
+        let end = (offset + span).min(TAU);
+        stops.extend([
+            AngularColorStop::new(Color::NONE, offset),
+            AngularColorStop::new(color, offset),
+            AngularColorStop::new(color, end),
+            AngularColorStop::new(Color::NONE, end),
+        ]);
+    }
+    stops.push(AngularColorStop::new(Color::NONE, TAU));
+    ConicGradient::new(UiPosition::CENTER, stops).with_start(start)
+}
+
+/// Circle node of `radius` centered on the hub; the hub drawn later covers its inner part.
+fn radial_menu_disc(radius: f32, border: f32) -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        left: Val::Px(-radius),
+        top: Val::Px(-radius),
+        width: Val::Px(radius * 2.0),
+        height: Val::Px(radius * 2.0),
+        border_radius: BorderRadius::all(Val::Px(radius)),
+        border: UiRect::all(Val::Px(border)),
+        ..default()
+    }
+}
+
+/// Every unselected sector's annular wedge, painted by a single conic gradient.
+fn radial_menu_sector_ring(
+    menu: &RadialMenu,
+    selected: Option<usize>,
+) -> Option<EntityScene<impl Scene>> {
+    let (start, _) = conic_sector(menu, 0);
+    let mut ranges: Vec<(f32, f32)> = (0..menu.slots.len())
+        .filter(|&index| selected != Some(index))
+        .map(|index| {
+            let (begin, span) = conic_sector(menu, index);
+            ((begin - start).rem_euclid(TAU), span)
         })
-    })
+        .collect();
+    if ranges.is_empty() {
+        return None;
+    }
+    ranges.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let node = radial_menu_disc(rendered_sector_outer_radius(menu, false), 0.);
+    let gradient = BackgroundGradient::from(sector_gradient(start, &ranges, RADIAL_MENU_SECTOR));
+    Some(EntityScene(bsn! { ~{node} ~{gradient} Pickable::IGNORE }))
+}
+
+/// The selected sector's wedge: `fill` inside, with a `highlight` outline along its outer arc.
+fn radial_menu_selected_wedge(
+    menu: &RadialMenu,
+    index: usize,
+    fill: Color,
+    highlight: Color,
+) -> impl Scene {
+    let (begin, span) = conic_sector(menu, index);
+    let radius = rendered_sector_outer_radius(menu, true);
+    let node = radial_menu_disc(radius, RADIAL_MENU_SELECTED_OUTLINE_WIDTH);
+    let background = BackgroundGradient::from(sector_gradient(begin, &[(0., span)], fill));
+    let border = BorderGradient::from(sector_gradient(begin, &[(0., span)], highlight));
+    bsn! { ~{node} ~{background} ~{border} Pickable::IGNORE }
 }
 
 /// Upright label/icon layer inside a rotated sector panel.

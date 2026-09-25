@@ -152,7 +152,6 @@ pub(super) fn apply_action(
                     hud.active_set = next;
                 }
             }
-            hud.dirty = true;
         }
         EditorAction::ToggleInputOverride { set } => {
             if let Some(s) = cfg.sets.get_mut(set) {
@@ -637,7 +636,6 @@ pub(super) fn apply_action(
                         .unwrap_or(ws.radial_menus.len() - 1);
                     hud.selected_segment = None;
                     hud.highlighted = None;
-                    hud.dirty = true;
                 }
             }
         }
@@ -651,7 +649,6 @@ pub(super) fn apply_action(
                     hud.active_wheel_index = (hud.active_wheel_index + 1) % ws.radial_menus.len();
                     hud.selected_segment = None;
                     hud.highlighted = None;
-                    hud.dirty = true;
                 }
             }
         }
@@ -675,8 +672,6 @@ pub(super) fn apply_action(
                 hud.active_set = 0;
                 hud.selected_segment = None;
                 hud.highlighted = None;
-                hud.dirty = true;
-                ui.dirty = true;
             }
         }
         // ── segment editing ─────────────────────────────────────────────────
@@ -860,8 +855,6 @@ pub(super) fn apply_action(
         EditorAction::SetBgImageOpacityDelta { set, delta } => {
             if let Some(s) = cfg.sets.get_mut(set) {
                 s.bg_image_opacity = (s.bg_image_opacity + delta).clamp(0.0, 1.0);
-                hud.dirty = true;
-                ui.dirty = true;
             }
         }
         EditorAction::CaptureNextWheelKey { set } => {
@@ -873,7 +866,6 @@ pub(super) fn apply_action(
         EditorAction::ToggleCycleWheels { set } => {
             if let Some(s) = cfg.sets.get_mut(set) {
                 s.cycle_wheels = !s.cycle_wheels;
-                ui.dirty = true;
             }
         }
         // ── undo / redo ────────────────────────────────────────────────────────
@@ -881,16 +873,12 @@ pub(super) fn apply_action(
             if let Some(snapshot) = ui.undo_stack.pop() {
                 ui.redo_stack.push(cfg.clone());
                 *cfg = snapshot;
-                hud.dirty = true;
-                ui.dirty = true;
             }
         }
         EditorAction::Redo => {
             if let Some(snapshot) = ui.redo_stack.pop() {
                 ui.undo_stack.push(cfg.clone());
                 *cfg = snapshot;
-                hud.dirty = true;
-                ui.dirty = true;
             }
         }
     }

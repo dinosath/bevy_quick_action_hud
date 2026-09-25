@@ -28,7 +28,7 @@ use action_apply::apply_action;
 pub use actions::EditorAction;
 pub use components::{EditorButton, FocusedEditorItem, SegmentHoverColor, WheelSettingsPanel};
 use drag::{editor_middle_drag, editor_touch_drag};
-use helpers::{action_at, is_nav_only_action, sync_wheelset_visuals, wheel_at};
+use helpers::{action_at, sync_wheelset_visuals, wheel_at};
 use hud_interaction::{click_hud_segments, process_hud_buttons};
 use input::{editor_capture_gamepad, editor_capture_key, editor_text_input, shortcut_just_pressed};
 use navigation::{
@@ -38,7 +38,7 @@ use navigation::{
 use persistence::save_config;
 pub(crate) use plugin::register_editor_systems;
 pub use plugin::QuickActionEditorPlugin;
-use render::{fix_plain_button_initial_bg, rebuild_editor};
+use render::fix_plain_button_initial_bg;
 use shortcuts::{
     apply_set_shortcuts, check_edit_shortcut, editor_undo_redo_shortcuts,
     hud_button_action_shortcuts, hud_wheel_nav,
@@ -50,6 +50,7 @@ pub use toolbar::EditMode;
 /// Registers the observer that fills the [`EditMode`] slot.
 pub(crate) fn hud_plugin(app: &mut App) {
     app.add_observer(toolbar::fill_edit_mode);
+    crate::hud::slot::register::<EditMode>(app);
 }
 use validation::{validate_config, ConfigValidation};
 

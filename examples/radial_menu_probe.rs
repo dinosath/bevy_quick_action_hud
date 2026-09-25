@@ -68,7 +68,6 @@ fn install_probe_config(
     // Editor preview prevents release-to-use input from consuming the
     // synthetic selected state before the screenshot is captured.
     hud.editor_open = true;
-    hud.dirty = true;
     *installed = true;
 }
 

@@ -4,7 +4,8 @@
 //! slot whose owning feature module fills it in when it is added.
 
 use bevy::prelude::*;
-use bevy::scene::prelude::Scene;
+use bevy::scene::prelude::{Scene, SceneList};
+use bevy::scene::EntityScene;
 
 use crate::editor::EditMode;
 use crate::page::{self, PageTabs};
@@ -13,6 +14,7 @@ pub(crate) mod actions;
 pub(crate) mod components;
 pub(crate) mod config;
 pub(crate) mod gamepad;
+pub(crate) mod slot;
 pub(crate) mod state;
 pub(crate) mod systems;
 pub(crate) mod theme;
@@ -27,18 +29,23 @@ pub(crate) use gamepad::detect_gamepad_icon_set;
 pub use gamepad::GamepadIconSet;
 pub(crate) use state::HudView;
 pub use state::{HudSegmentSelected, WheelHudState};
-pub(crate) use systems::{button_feedback as hud_button_feedback, rebuild_hud};
+pub(crate) use systems::{button_feedback as hud_button_feedback, rebuild_hud, show_hud};
 pub use theme::*;
 
-/// The HUD: the active page, the page tabs, and the edit-mode controls on top.
-pub(crate) fn hud(active_page: Option<usize>) -> impl Scene {
-    let page: Box<dyn Scene> = match active_page {
-        Some(index) => Box::new(page::page(index)),
-        None => Box::new(page::no_page()),
+/// The HUD: every enabled page (only the active one is shown), the page tabs,
+/// and the edit-mode controls on top.
+pub(crate) fn hud(pages: &[usize]) -> impl Scene {
+    let pages: Vec<Box<dyn SceneList>> = if pages.is_empty() {
+        vec![Box::new(EntityScene(page::no_page()))]
+    } else {
+        pages
+            .iter()
+            .map(|&index| Box::new(EntityScene(page::page(index))) as Box<dyn SceneList>)
+            .collect()
     };
     bsn! {
         WheelHudRoot
-        Children [ @{page} -- PageTabs -- EditMode ]
+        Children [ {pages} -- PageTabs -- EditMode ]
     }
 }
 

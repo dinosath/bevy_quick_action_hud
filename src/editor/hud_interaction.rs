@@ -56,8 +56,6 @@ pub(super) fn process_hud_buttons(
                     hud.active_set = *i;
                     hud.active_wheel_entry = 0;
                     hud.active_wheel_index = 0;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::PrevSet => {
                     if hud.active_set > 0 {
@@ -67,8 +65,6 @@ pub(super) fn process_hud_buttons(
                     }
                     hud.active_wheel_entry = 0;
                     hud.active_wheel_index = 0;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::NextSet => {
                     let max = qcfg.sets.len().saturating_sub(1);
@@ -79,8 +75,6 @@ pub(super) fn process_hud_buttons(
                     }
                     hud.active_wheel_entry = 0;
                     hud.active_wheel_index = 0;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ToggleEditor => {
                     hud.editor_open = !hud.editor_open;
@@ -101,8 +95,6 @@ pub(super) fn process_hud_buttons(
                         hud.hovered_wheel = None;
                         hud.hovered_hud_switch = None;
                     }
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::AddSegment {
                     set,
@@ -152,8 +144,6 @@ pub(super) fn process_hud_buttons(
                         };
                         hud.selected_segment = Some((*set, *entry, *wheel, slot));
                         hud.highlighted = Some((*set, *entry, *wheel, slot));
-                        hud.dirty = true;
-                        ui.dirty = true;
                     }
                 }
                 WheelHudAction::RemoveSegment {
@@ -181,8 +171,6 @@ pub(super) fn process_hud_buttons(
                             };
                             hud.selected_segment = Some((*set, *entry, *wheel, next_slot));
                             hud.highlighted = Some((*set, *entry, *wheel, next_slot));
-                            hud.dirty = true;
-                            ui.dirty = true;
                         }
                     }
                 }
@@ -204,8 +192,6 @@ pub(super) fn process_hud_buttons(
                     hud.selected_segment = Some((*set, *entry, *wheel, *slot));
                     ui.editing = EditFocus::SlotName(*slot);
                     hud.highlighted = Some((*set, *entry, *wheel, *slot));
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::EditSegmentIcon {
                     set,
@@ -225,8 +211,6 @@ pub(super) fn process_hud_buttons(
                     hud.selected_segment = Some((*set, *entry, *wheel, *slot));
                     ui.editing = EditFocus::SlotIcon(*slot);
                     hud.highlighted = Some((*set, *entry, *wheel, *slot));
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::CycleSegmentMapping {
                     set,
@@ -249,8 +233,6 @@ pub(super) fn process_hud_buttons(
                             s.command = cycle_palette(COMMANDS, &s.command).into();
                         }
                     }
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ToggleSegmentHold {
                     set,
@@ -270,8 +252,6 @@ pub(super) fn process_hud_buttons(
                             s.hold = !s.hold;
                         }
                     }
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::CycleSegmentHoldAction {
                     set,
@@ -294,8 +274,6 @@ pub(super) fn process_hud_buttons(
                             s.hold_command = cycle_palette(COMMANDS, &s.hold_command).into();
                         }
                     }
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ToggleSegmentCloseOnApply {
                     set,
@@ -315,8 +293,6 @@ pub(super) fn process_hud_buttons(
                             s.close_on_select = !s.close_on_select;
                         }
                     }
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::DeleteSegment {
                     set,
@@ -339,8 +315,6 @@ pub(super) fn process_hud_buttons(
                     ui.selection = Selection::None;
                     hud.selected_segment = None;
                     hud.highlighted = None;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::SaveConfig => {
                     save_config(&qcfg, &ui.config_path);
@@ -350,8 +324,6 @@ pub(super) fn process_hud_buttons(
                         set: hud.active_set,
                     };
                     apply_action(&action, &mut qcfg, &mut ui, &mut hud);
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ToggleSettings => {
                     hud.settings_open = !hud.settings_open;
@@ -366,7 +338,6 @@ pub(super) fn process_hud_buttons(
                         ui.selection = Selection::None;
                         ui.editing = EditFocus::None;
                     }
-                    hud.dirty = true;
                 }
                 WheelHudAction::SelectAction { set, entry } => {
                     hud.selected_action = Some((*set, *entry));
@@ -378,8 +349,6 @@ pub(super) fn process_hud_buttons(
                         set: *set,
                         entry: *entry,
                     };
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::SelectHudSwitch { set, entry }
                 | WheelHudAction::MoveHudSwitch { set, entry }
@@ -393,8 +362,6 @@ pub(super) fn process_hud_buttons(
                         set: *set,
                         entry: *entry,
                     };
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::DeleteHudSwitch { set, entry } => {
                     apply_action(
@@ -410,8 +377,6 @@ pub(super) fn process_hud_buttons(
                     hud.selected_wheel = None;
                     hud.selected_hud_switch = None;
                     hud.selected_segment = None;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ResizeHudSwitch { set, entry, delta } => {
                     if let Some(SetEntry::HudSwitch(hs)) = qcfg
@@ -426,8 +391,6 @@ pub(super) fn process_hud_buttons(
                         set: *set,
                         entry: *entry,
                     };
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::DeleteAction { set, entry } => {
                     apply_action(
@@ -444,8 +407,6 @@ pub(super) fn process_hud_buttons(
                     hud.selected_segment = None;
                     hud.highlighted = None;
                     hud.edit_control_focus = None;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::MoveAction { set, entry }
                 | WheelHudAction::EditAction { set, entry } => {
@@ -456,8 +417,6 @@ pub(super) fn process_hud_buttons(
                         set: *set,
                         entry: *entry,
                     };
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::EditActionName { set, entry } => {
                     apply_action(
@@ -470,8 +429,6 @@ pub(super) fn process_hud_buttons(
                         &mut hud,
                     );
                     hud.selected_action = Some((*set, *entry));
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::CaptureActionKey { set, entry } => {
                     apply_action(
@@ -484,8 +441,6 @@ pub(super) fn process_hud_buttons(
                         &mut hud,
                     );
                     hud.selected_action = Some((*set, *entry));
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::CycleActionIcon { set, entry } => {
                     apply_action(
@@ -497,8 +452,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::CycleActionMapping { set, entry } => {
                     apply_action(
@@ -510,8 +463,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ToggleActionHold { set, entry } => {
                     apply_action(
@@ -523,8 +474,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::CycleHoldAction { set, entry } => {
                     apply_action(
@@ -536,8 +485,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ToggleActionCloseOnApply { set, entry } => {
                     apply_action(
@@ -549,8 +496,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::WheelSettings { set, entry, wheel }
                 | WheelHudAction::MoveWheel { set, entry, wheel }
@@ -565,8 +510,6 @@ pub(super) fn process_hud_buttons(
                         entry: *entry,
                         wheel: *wheel,
                     };
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ResizeWheel {
                     set,
@@ -587,8 +530,6 @@ pub(super) fn process_hud_buttons(
                     );
                     hud.selected_wheel = Some((*set, *entry, *wheel));
                     hud.selected_segment = None;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::DeleteWheel { set, entry, wheel } => {
                     // A wheel set is one HUD component. Deleting its visible
@@ -603,8 +544,6 @@ pub(super) fn process_hud_buttons(
                     hud.selected_wheel = None;
                     hud.selected_segment = None;
                     hud.highlighted = None;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::RotateAction { set, entry, delta } => {
                     apply_action(
@@ -618,8 +557,6 @@ pub(super) fn process_hud_buttons(
                         &mut hud,
                     );
                     hud.selected_action = Some((*set, *entry));
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ActionWidthDelta { set, entry, delta } => {
                     apply_action(
@@ -632,8 +569,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ActionHeightDelta { set, entry, delta } => {
                     apply_action(
@@ -646,8 +581,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::ActionRadiusDelta { set, entry, delta } => {
                     apply_action(
@@ -660,8 +593,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::CycleActionPosition { set, entry } => {
                     apply_action(
@@ -673,8 +604,6 @@ pub(super) fn process_hud_buttons(
                         &mut ui,
                         &mut hud,
                     );
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
                 WheelHudAction::CloseSelection => {
                     hud.highlighted = None;
@@ -684,8 +613,6 @@ pub(super) fn process_hud_buttons(
                     hud.edit_control_focus = None;
                     ui.selection = Selection::None;
                     ui.editing = EditFocus::None;
-                    hud.dirty = true;
-                    ui.dirty = true;
                 }
             }
         }
@@ -788,8 +715,6 @@ pub(super) fn click_hud_segments(
                 wheel,
                 slot,
             };
-            hud.dirty = true;
-            ui.dirty = true;
         }
     }
 }

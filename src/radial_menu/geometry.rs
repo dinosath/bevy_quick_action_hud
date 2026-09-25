@@ -12,15 +12,8 @@ use super::model::RadialMenu;
 pub const HIGHLIGHTED_SECTOR_OUTSET: f32 = 38.0;
 
 /// Amount by which the hub overlaps sector geometry to guarantee a clean
-/// circular inner edge despite the native-strip approximation.
+/// circular inner edge over the conic-gradient sector wedges.
 pub const RADIAL_MENU_HUB_OVERLAP: f32 = 4.0;
-
-/// Number of native UI strips used to approximate one circular sector edge.
-///
-/// The count keeps the reference arc smooth at normal HUD scale without a
-/// custom material or shader.  Sector scenes are rebuilt only on HUD changes,
-/// not on pointer movement.
-pub(crate) const RADIAL_MENU_SECTOR_STRIPS: usize = 256;
 
 /// Returns the radial extent used by a sector in the retained UI scene.
 ///
@@ -127,27 +120,22 @@ pub(crate) fn sector_index_at_angle(menu: &RadialMenu, angle: f32) -> Option<usi
     Some((relative / sector_span).floor() as usize)
 }
 
-/// Returns one horizontal strip width for a native annular-sector approximation.
+/// Returns the conic-gradient `(start, span)` of sector `index`.
 ///
-/// The radial boundary limits the width to the sector's two radial edges, while
-/// the circular boundary prevents the strip from extending beyond the menu's
-/// outer ring. The hub covers the corresponding inner-circle edge.
-pub(crate) fn sector_strip_width(radial_distance: f32, outer_radius: f32, sector_span: f32) -> f32 {
-    let radial_half_width = radial_distance * (sector_span * 0.5).tan().abs();
-    let circle_half_width = (outer_radius.powi(2) - radial_distance.powi(2))
-        .max(0.0)
-        .sqrt();
-    2.0 * radial_half_width.min(circle_half_width)
+/// Conic gradients run clockwise from twelve o'clock; menu angles run
+/// counter-clockwise from three o'clock.
+pub(crate) fn conic_sector(menu: &RadialMenu, index: usize) -> (f32, f32) {
+    let (start, end) = slice_angles(menu, index);
+    let begin = (std::f32::consts::FRAC_PI_2 - end).rem_euclid(std::f32::consts::TAU);
+    (begin, (end - start).max(0.0))
 }
 
-/// Geometry of one sector panel in hub-local UI coordinates.
+/// Rotated hit-test and content panel of one sector, in hub-local UI coordinates.
 #[derive(Clone, Copy)]
 pub(crate) struct SectorPanel {
     pub(crate) center: Vec2,
     pub(crate) width: f32,
     pub(crate) height: f32,
-    pub(crate) outer_radius: f32,
-    pub(crate) span: f32,
     pub(crate) rotation: f32,
 }
 
@@ -162,8 +150,6 @@ impl SectorPanel {
             center: Vec2::new(middle.cos() * height * 0.5, middle.sin() * height * 0.5),
             width: (2.0 * outer_radius * (span * 0.5).sin().abs()).max(32.0),
             height,
-            outer_radius,
-            span,
             rotation: std::f32::consts::FRAC_PI_2 - middle,
         }
     }

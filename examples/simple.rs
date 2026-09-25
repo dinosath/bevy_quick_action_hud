@@ -58,7 +58,6 @@ fn open_hud_shortcut(
 
     if (q_pressed || l2_pressed) && !hud.editor_open {
         hud.open = !hud.open;
-        hud.dirty = true;
         let source = if q_pressed { "Q" } else { "L2" };
         push_log(
             &mut log,

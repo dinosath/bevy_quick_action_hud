@@ -6,18 +6,39 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Button;
 
 use super::components::build_hud_action_editor_card;
+use crate::hud::slot::HudSlot;
+use crate::radial_menu_set::keyed_highlight;
 use crate::widgets::{
     editor_icon_path, hud_clickable, hud_layer, image_icon, spawn_child, text_label,
 };
 use crate::{
-    HudView, SetEntry, WheelHudAction, HUD_AMBER, HUD_BADGE_BORDER, HUD_DIM, HUD_GREEN,
-    HUD_PANEL_CARD, HUD_TEXT,
+    HudView, SetEntry, WheelHudAction, WheelHudState, HUD_AMBER, HUD_BADGE_BORDER, HUD_DIM,
+    HUD_GREEN, HUD_PANEL_CARD, HUD_TEXT,
 };
 
 /// Slot holding the editor entry points; drawn above every page component.
 #[derive(Component, Default, Clone, Copy)]
 #[require(Node = hud_layer(), Pickable = Pickable::IGNORE)]
 pub struct EditMode;
+
+/// Editor state shown by the toolbar and the button inspector.
+type EditModeKey = (Option<usize>, bool, bool, Option<(usize, usize)>);
+
+impl HudSlot for EditMode {
+    type Key = Option<EditModeKey>;
+
+    fn key(&self, hud: &WheelHudState) -> Self::Key {
+        hud.editor_open.then(|| {
+            (
+                hud.edit_control_focus.filter(|&focus| focus != 0),
+                hud.settings_open,
+                keyed_highlight(hud).is_some() || hud.selected_wheel.is_some(),
+                hud.selected_action
+                    .filter(|(page, _)| *page == hud.active_set),
+            )
+        })
+    }
+}
 
 pub(crate) fn fill_edit_mode(add: On<Add<EditMode>>, view: HudView, mut commands: Commands) {
     let slot = add.entity;

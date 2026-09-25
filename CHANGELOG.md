@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Interaction`; clickable markers use `bevy::ui_widgets::Button`, and
   `WheelHudButton` now requires `PickingInteraction`.
 - Editor sliders set their initial value through `SliderValue`.
+- **Removed `WheelHudState::dirty` and `EditorUiState::dirty`.** The HUD now
+  follows state automatically: it is spawned once and respawned only when
+  `QuickActionConfig` changes; opening/closing and page switching toggle
+  `Display`; each component slot (radial menus, buttons, page switches, tabs,
+  edit mode) respawns only when the state it shows changes. Remove any
+  `hud.dirty = true` lines from application code.
+- Radial-menu sectors render with conic gradients (about 5 UI nodes per
+  sector instead of about 260).
 
 ## [0.2.0] — 2026-07-15
 

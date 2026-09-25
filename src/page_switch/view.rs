@@ -5,13 +5,22 @@ use bevy::prelude::*;
 use bevy::ui_widgets::Button;
 
 use crate::editor::overlays::spawn_edge_affordances;
+use crate::hud::slot::HudSlot;
 use crate::widgets::{hud_clickable, hud_layer, spawn_child, text_label};
-use crate::{HudView, WheelHudAction, HUD_BADGE_BORDER, HUD_PANEL_CARD, HUD_TEXT};
+use crate::{HudView, WheelHudAction, WheelHudState, HUD_BADGE_BORDER, HUD_PANEL_CARD, HUD_TEXT};
 
 /// Slot holding the page switches of page `.0`.
 #[derive(Component, Default, Clone, Copy)]
 #[require(Node = hud_layer(), Pickable = Pickable::IGNORE)]
 pub struct PageSwitches(pub usize);
+
+impl HudSlot for PageSwitches {
+    type Key = bool;
+
+    fn key(&self, hud: &WheelHudState) -> bool {
+        hud.editor_open
+    }
+}
 
 pub(crate) fn fill_page_switches(
     add: On<Add<PageSwitches>>,
