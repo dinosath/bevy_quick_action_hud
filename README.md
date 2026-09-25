@@ -1,6 +1,6 @@
 # bevy_quick_action_hud
 
-A headless, gamepad-driven quick action HUD and radial menu library for [Bevy](https://bevyengine.org/) 0.19.
+A headless, gamepad-driven quick action HUD and radial menu library for [Bevy](https://bevyengine.org/) 0.20 (currently `0.20.0-rc.1`).
 
 **Headless** means the library handles all logic — input, hover detection, casting modes, time scaling, slot cycling — and emits events your app reacts to for rendering. You own the visuals.
 
@@ -99,7 +99,7 @@ Add the dependency:
 ```toml
 [dependencies]
 bevy_quick_action_hud = { git = "https://github.com/dinosath/bevy_quick_action_hud" }
-bevy = "0.19"
+bevy = "0.20.0-rc.1"
 ```
 
 ### Minimal Example
@@ -294,11 +294,11 @@ QuickActionConfig(
 
 ## UI composition (bsn!)
 
-The radial-menu component module declares the crate-private reusable BSN
-fragments for the hub, rings, and labels. The HUD presentation module composes
-those fragments with runtime values. Sector geometry, procedural materials,
-and hit testing remain runtime ECS work because their layout is derived from
-current menu data and input state.
+The radial-menu feature owns the reusable BSN scene for a complete menu,
+including its hub, rings, sectors, labels, icons, and geometry. The HUD scene
+only places the active menu on the current page and adds page identity and
+editor affordances. Sector hit testing remains ECS state attached by that
+thin HUD adapter because its identity comes from the authored page.
 
 ---
 
@@ -340,6 +340,7 @@ cargo run --example simple --features editor
 | `quick_action_hud` | Bevy |
 |---|---|
 | `0.1` | `0.19` |
+| `main` | `0.20.0-rc.1` |
 
 ---
 

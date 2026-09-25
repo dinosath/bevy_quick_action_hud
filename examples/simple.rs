@@ -1,5 +1,6 @@
 //! Minimal HUD host used while developing the editor.
 
+use bevy::picking::hover::PickingInteraction;
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use bevy_quick_action_hud::{
@@ -144,11 +145,11 @@ fn log_hud_selection(
 }
 
 fn log_hud_button_presses(
-    buttons: Query<(&WheelHudButton, &Interaction), Changed<Interaction>>,
+    buttons: Query<(&WheelHudButton, &PickingInteraction), Changed<PickingInteraction>>,
     mut log: ResMut<InputLog>,
 ) {
     for (button, interaction) in &buttons {
-        if *interaction == Interaction::Pressed {
+        if *interaction == PickingInteraction::Pressed {
             push_log(
                 &mut log,
                 format!("HUD button pressed → {:?}", button.action),

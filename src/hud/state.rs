@@ -1,6 +1,27 @@
 //! Runtime state and rendering types for the HUD feature.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
+
+use crate::{GamepadIconSet, QuickActionConfig};
+
+/// Read-only resources shared by every HUD component view.
+#[derive(SystemParam)]
+pub(crate) struct HudView<'w> {
+    pub(crate) cfg: Res<'w, QuickActionConfig>,
+    pub(crate) hud: Res<'w, WheelHudState>,
+    pub(crate) asset_server: Res<'w, AssetServer>,
+    pub(crate) icon_set: Res<'w, GamepadIconSet>,
+}
+
+impl HudView<'_> {
+    /// Loads the controller glyph for a `GP:` binding, if the binding has one.
+    pub(crate) fn gamepad_glyph(&self, binding: &str) -> Option<Handle<Image>> {
+        let label = binding.strip_prefix("GP:")?;
+        let path = self.icon_set.embedded_icon_path(label)?;
+        Some(self.asset_server.load(path))
+    }
+}
 
 #[derive(Resource)]
 /// Runtime state for HUD visibility, selection, and retained rebuilding.

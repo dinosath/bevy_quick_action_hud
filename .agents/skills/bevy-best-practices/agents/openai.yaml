@@ -1,4 +1,4 @@
 interface:
   display_name: "Bevy Best Practices"
-  short_description: "Review and architect Bevy 0.19 projects"
-  default_prompt: "Review this Bevy project against Bevy 0.19 best practices and propose incremental improvements."
+  short_description: "Review and architect Bevy 0.20 projects"
+  default_prompt: "Review this Bevy project against Bevy 0.20 best practices and propose incremental improvements."

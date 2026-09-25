@@ -4,26 +4,33 @@
 //! Rendering is left to the application.
 #![warn(missing_docs)]
 
+mod button;
 pub mod editor;
 mod hud;
+mod page;
+mod page_switch;
 mod persistence;
 mod platform;
 mod radial_menu;
 mod radial_menu_set;
 mod scheduling;
+mod serde_defaults;
 pub mod touch;
 pub mod wasm;
+mod widgets;
 
+pub use button::{ActionShape, HudButton, PositionMode, QuickAction};
 pub use hud::*;
-use hud::{
-    detect_gamepad_icon_set, hud_button_feedback, hud_context_visibility, hud_control_owner,
-    hud_stick_nav, rebuild_hud, tick_hud_dry_run_flash,
+use hud::{detect_gamepad_icon_set, hud_button_feedback, hud_control_owner, rebuild_hud};
+pub use page::{
+    count_radial_menu_sets, enabled_hud_pages, ActionSet, HudComponent, HudPage, SetEntry,
 };
+pub use page_switch::HudSwitch;
 pub use radial_menu::messages::*;
 pub use radial_menu::{
-    check_low_counts, emit_lifecycle, emit_selection, resolve_wheel_input, slice_angles,
-    slice_center, update_active_slot_context, update_edit_mode, update_wheel_hold,
-    update_wheel_hover,
+    check_low_counts, emit_lifecycle, emit_selection, resolve_wheel_input, sector_anchor,
+    slice_angles, slice_center, update_active_slot_context, update_edit_mode, update_wheel_hold,
+    update_wheel_hover, SectorAnchor,
 };
 pub use radial_menu::{
     resolve_input, ActiveSlotContext, CastingMode, GlobalBindings, InputAction, RadialMenuAudio,
@@ -42,11 +49,7 @@ pub use radial_menu_set::{
 
 use bevy::asset::embedded_asset;
 use bevy::prelude::*;
-#[allow(unused_imports)]
-pub(crate) use hud::config::_default_action_color;
-pub(crate) use hud::ui::{
-    hud_action_field, hud_action_stepper, hud_child, hud_clickable, hud_label_or, hud_text,
-};
+pub use widgets::parse_hex_color;
 
 /// Default filename for the persisted [`QuickActionConfig`].
 /// Resolved relative to the process working directory (the project root when
@@ -234,15 +237,22 @@ impl Plugin for QuickActionHudPlugin {
                 .init_resource::<WheelHudState>()
                 .init_resource::<GamepadIconSet>()
                 .add_message::<HudSegmentSelected>()
+                .add_plugins((
+                    page::plugin,
+                    radial_menu_set::plugin,
+                    button::plugin,
+                    page_switch::plugin,
+                    editor::hud_plugin,
+                ))
                 .add_systems(PostStartup, persistence::try_autoload_config)
                 .add_systems(
                     Update,
                     (
                         detect_gamepad_icon_set,
                         hud_button_feedback,
-                        hud_context_visibility,
-                        hud_stick_nav,
-                        tick_hud_dry_run_flash,
+                        editor::overlays::context_visibility,
+                        radial_menu_set::hud_stick_nav,
+                        button::tick_dry_run_flash,
                         rebuild_hud,
                     )
                         .chain()
@@ -281,6 +291,91 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    /// Spawns the HUD headlessly for `state` and returns every HUD button action.
+    fn spawn_hud(state: WheelHudState) -> (App, Vec<WheelHudAction>) {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::asset::AssetPlugin::default(),
+            bevy::scene::ScenePlugin,
+        ))
+        .init_asset::<Image>()
+        .init_resource::<QuickActionConfig>()
+        .insert_resource(state)
+        .init_resource::<GamepadIconSet>()
+        .add_plugins((
+            page::plugin,
+            radial_menu_set::plugin,
+            button::plugin,
+            page_switch::plugin,
+            editor::hud_plugin,
+        ))
+        .add_systems(Update, rebuild_hud);
+        app.update();
+        let world = app.world_mut();
+        let actions = world
+            .query::<&WheelHudButton>()
+            .iter(world)
+            .map(|b| b.action.clone())
+            .collect();
+        (app, actions)
+    }
+
+    #[test]
+    fn hud_scene_fills_every_page_slot() {
+        let (mut app, actions) = spawn_hud(WheelHudState {
+            open: true,
+            ..default()
+        });
+
+        let world = app.world_mut();
+        assert_eq!(world.query::<&WheelHudRoot>().iter(world).count(), 1);
+        // The default combat page: four sectors, two buttons, and the "Edit" toggle.
+        assert_eq!(
+            world
+                .query::<&radial_menu::widget::SectorIndex>()
+                .iter(world)
+                .count(),
+            4
+        );
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|a| matches!(a, WheelHudAction::SelectAction { .. }))
+                .count(),
+            2
+        );
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, WheelHudAction::ToggleEditor)));
+    }
+
+    #[test]
+    fn editor_decorates_the_radial_menu_once_it_is_ready() {
+        let (mut app, actions) = spawn_hud(WheelHudState {
+            open: true,
+            editor_open: true,
+            highlighted: Some((0, 0, Some(0), 1)),
+            ..default()
+        });
+
+        let world = app.world_mut();
+        let center_action = world
+            .query_filtered::<&WheelHudButton, With<radial_menu::widget::RadialMenuCenter>>()
+            .single(world)
+            .map(|b| b.action.clone());
+        assert!(matches!(
+            center_action,
+            Ok(WheelHudAction::SelectWheel { .. })
+        ));
+        let count = |f: fn(&WheelHudAction) -> bool| actions.iter().filter(|a| f(a)).count();
+        assert_eq!(count(|a| matches!(a, WheelHudAction::AddSegment { .. })), 3);
+        assert_eq!(
+            count(|a| matches!(a, WheelHudAction::RemoveSegment { .. })),
+            1
+        );
+    }
+
     #[test]
     fn ron_round_trip() {
         let cfg = QuickActionConfig::default();
@@ -303,8 +398,23 @@ mod tests {
 
     #[test]
     fn existing_flat_geometry_config_deserializes() {
-        let cfg: QuickActionConfig = ron::from_str(include_str!("../quickactions_config.ron"))
-            .expect("deserialize existing flat-key configuration");
+        // Legacy shape: flat geometry keys and the old `wheels` field name.
+        const LEGACY: &str = r#"(
+            sets: [(
+                name: "Combat",
+                entries: [RadialMenuSet((
+                    name: "Legacy",
+                    wheels: [(
+                        name: "Legacy wheel",
+                        outer_radius: 220.0,
+                        inner_radius: 90.0,
+                        slots: [(name: "A"), (name: "B")],
+                    )],
+                ))],
+            )],
+        )"#;
+        let cfg: QuickActionConfig =
+            ron::from_str(LEGACY).expect("deserialize existing flat-key configuration");
         let wheel = cfg
             .sets
             .iter()
@@ -635,6 +745,20 @@ mod tests {
     }
 
     #[test]
+    fn page_radial_menu_set_lookup_clamps_to_last_set() {
+        let set = ActionSet {
+            entries: vec![
+                SetEntry::Action(QuickAction::default()),
+                SetEntry::RadialMenuSet(RadialMenuSet::default()),
+            ],
+            ..default()
+        };
+        assert_eq!(set.radial_menu_set(5).map(|(entry, _)| entry), Some(1));
+        assert!(ActionSet::default().radial_menu_set(0).is_none());
+        assert_eq!(set.buttons().count(), 1);
+    }
+
+    #[test]
     fn resolve_input_global_only() {
         let global = GlobalBindings {
             bindings: {
@@ -828,7 +952,7 @@ mod tests {
 
     #[test]
     fn default_action_color() {
-        let color = _default_action_color();
+        let color = button::config::default_button_color();
         assert_eq!(color, "#3b82f6");
     }
 
@@ -851,3 +975,4 @@ mod tests {
         assert!((RadialMenuGeometry::default().inner_radius - 145.0).abs() < f32::EPSILON);
     }
 }
+

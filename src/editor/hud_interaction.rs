@@ -1,9 +1,11 @@
 //! HUD button and sector interaction systems.
 
 use super::*;
+use crate::radial_menu::widget::SectorIndex;
+use bevy::picking::hover::PickingInteraction;
 
 pub(super) fn process_hud_buttons(
-    buttons: Query<(&WheelHudButton, &Interaction), Changed<Interaction>>,
+    buttons: Query<(&WheelHudButton, &PickingInteraction), Changed<PickingInteraction>>,
     mut hud: ResMut<WheelHudState>,
     mut ui: ResMut<EditorUiState>,
     mut qcfg: ResMut<QuickActionConfig>,
@@ -15,39 +17,39 @@ pub(super) fn process_hud_buttons(
         );
         if let Some(owner) = crate::hud_control_owner(&btn.action) {
             match interaction {
-                Interaction::Hovered => set_hover_owner(&mut hud, owner),
-                Interaction::None => clear_hover_owner(&mut hud, owner),
-                Interaction::Pressed => {}
+                PickingInteraction::Hovered => set_hover_owner(&mut hud, owner),
+                PickingInteraction::None => clear_hover_owner(&mut hud, owner),
+                PickingInteraction::Pressed => {}
             }
         }
         match (&btn.action, interaction) {
-            (WheelHudAction::SelectAction { set, entry }, Interaction::Hovered) => {
+            (WheelHudAction::SelectAction { set, entry }, PickingInteraction::Hovered) => {
                 hud.hovered_action = Some((*set, *entry));
             }
-            (WheelHudAction::SelectAction { set, entry }, Interaction::None)
+            (WheelHudAction::SelectAction { set, entry }, PickingInteraction::None)
                 if hud.hovered_action == Some((*set, *entry)) =>
             {
                 hud.hovered_action = None;
             }
-            (WheelHudAction::SelectWheel { set, entry, wheel }, Interaction::Hovered) => {
+            (WheelHudAction::SelectWheel { set, entry, wheel }, PickingInteraction::Hovered) => {
                 hud.hovered_wheel = Some((*set, *entry, *wheel));
             }
-            (WheelHudAction::SelectWheel { set, entry, wheel }, Interaction::None)
+            (WheelHudAction::SelectWheel { set, entry, wheel }, PickingInteraction::None)
                 if hud.hovered_wheel == Some((*set, *entry, *wheel)) =>
             {
                 hud.hovered_wheel = None;
             }
-            (WheelHudAction::SelectHudSwitch { set, entry }, Interaction::Hovered) => {
+            (WheelHudAction::SelectHudSwitch { set, entry }, PickingInteraction::Hovered) => {
                 hud.hovered_hud_switch = Some((*set, *entry));
             }
-            (WheelHudAction::SelectHudSwitch { set, entry }, Interaction::None)
+            (WheelHudAction::SelectHudSwitch { set, entry }, PickingInteraction::None)
                 if hud.hovered_hud_switch == Some((*set, *entry)) =>
             {
                 hud.hovered_hud_switch = None;
             }
             _ => {}
         }
-        if *interaction == Interaction::Pressed {
+        if *interaction == PickingInteraction::Pressed {
             debug!("[ui] hud button pressed: {:?}", btn.action);
             match &btn.action {
                 WheelHudAction::SetActiveSet(i) => {
@@ -716,8 +718,10 @@ fn clear_hover_owner(hud: &mut WheelHudState, owner: HudControlOwner) {
 }
 
 pub(super) fn click_hud_segments(
-    segments: Query<(&WheelHudSegmentHit, &Interaction), Changed<Interaction>>,
-    settings_panels: Query<&Interaction, With<WheelSettingsPanel>>,
+    segments: Query<(Entity, &SectorIndex, &PickingInteraction), Changed<PickingInteraction>>,
+    ancestors: Query<&ChildOf>,
+    menus: Query<&HudRadialMenu>,
+    settings_panels: Query<&PickingInteraction, With<WheelSettingsPanel>>,
     mut hud: ResMut<WheelHudState>,
     mut ui: ResMut<EditorUiState>,
 ) {
@@ -727,28 +731,36 @@ pub(super) fn click_hud_segments(
     // Settings is a modal interaction surface relative to the radial preview.
     // If it received this frame's pointer interaction, never let a sector
     // underneath clear the selected wheel or replace the settings card.
-    if settings_panels
-        .iter()
-        .any(|interaction| matches!(interaction, Interaction::Hovered | Interaction::Pressed))
-    {
+    if settings_panels.iter().any(|interaction| {
+        matches!(
+            interaction,
+            PickingInteraction::Hovered | PickingInteraction::Pressed
+        )
+    }) {
         return;
     }
-    for (segment, interaction) in &segments {
+    for (sector, &SectorIndex(slot), interaction) in &segments {
+        let Some(&HudRadialMenu((set, entry, wheel))) = ancestors
+            .iter_ancestors(sector)
+            .find_map(|e| menus.get(e).ok())
+        else {
+            continue;
+        };
         debug!(
-            "[ui] wheel segment interaction: set={} entry={} wheel={:?} slot={} -> {:?}",
-            segment.set, segment.entry, segment.wheel, segment.slot, interaction
+            "[ui] wheel segment interaction: set={set} entry={entry} wheel={wheel:?} slot={slot} -> {interaction:?}"
         );
-        let id = (segment.set, segment.entry, segment.wheel, segment.slot);
-        if *interaction == Interaction::Hovered {
+        let id = (set, entry, wheel, slot);
+        if *interaction == PickingInteraction::Hovered {
             hud.mouse_hovered_segment = Some(id);
             hud.highlighted = Some(id);
-            hud.hovered_wheel = Some((segment.set, segment.entry, segment.wheel));
+            hud.hovered_wheel = Some((set, entry, wheel));
             hud.selected_action = None;
             hud.selected_wheel = None;
             hud.edit_control_focus = Some(0);
-        } else if *interaction == Interaction::None && hud.mouse_hovered_segment == Some(id) {
+        } else if *interaction == PickingInteraction::None && hud.mouse_hovered_segment == Some(id)
+        {
             hud.mouse_hovered_segment = None;
-            if hud.hovered_wheel == Some((segment.set, segment.entry, segment.wheel)) {
+            if hud.hovered_wheel == Some((set, entry, wheel)) {
                 hud.hovered_wheel = None;
             }
             if !matches!(
@@ -763,7 +775,7 @@ pub(super) fn click_hud_segments(
                 hud.highlighted = None;
                 hud.edit_control_focus = None;
             }
-        } else if *interaction == Interaction::Pressed {
+        } else if *interaction == PickingInteraction::Pressed {
             hud.mouse_hovered_segment = None;
             hud.highlighted = Some(id);
             hud.selected_segment = Some(id);
@@ -771,10 +783,10 @@ pub(super) fn click_hud_segments(
             hud.selected_wheel = None;
             hud.edit_control_focus = Some(0);
             ui.selection = Selection::Segment {
-                set: segment.set,
-                entry: segment.entry,
-                wheel: segment.wheel,
-                slot: segment.slot,
+                set,
+                entry,
+                wheel,
+                slot,
             };
             hud.dirty = true;
             ui.dirty = true;

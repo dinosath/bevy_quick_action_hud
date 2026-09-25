@@ -1,21 +1,25 @@
-# BSN and Feathers review guide for Bevy 0.19
+# BSN and Feathers review guide for Bevy 0.20
 
 Use this reference for scene-notation migrations, editor/tooling UI reviews,
 Feathers adoption, or UI bugs involving flicker, selection, hover, or input
 capture.
 
-## First establish the 0.19 boundary
+## First establish the version boundary
 
 Check the exact Bevy and `bevy_feathers` versions in `Cargo.toml` and the
-lockfile. Use the Bevy 0.19 release notes, migration guide, local crate docs,
-and official examples as the authority. Bevy 0.19 supports Rust-authored BSN
-composition through `bsn!`, scene functions, templates, scene patches,
-`Children[]`, named entity references, `SceneList`, and `spawn_scene`.
+lockfile. This repository pins `0.20.0-rc.1`. Treat the local crate docs
+(`bevy_scene-<version>/src/lib.rs` contains the BSN syntax table), release
+notes, migration guide, and official examples at the matching tag as the
+authority. Both 0.19 and 0.20 support Rust-authored BSN composition through
+`bsn!`, scene functions, templates, scene patches, `Children[]`, named entity
+references, `SceneList`, and `spawn_scene`, but the syntax differs (0.20:
+`--` separators, `@scene()`, `@{expr}`). See
+[migration-0.19-to-0.20.md](migration-0.19-to-0.20.md).
 
 Do not describe `.bsn` files as a completed asset workflow without verifying
-the release notes: disk-backed BSN loading/saving was still future work in the
-0.19 release. A project may use BSN for reusable Rust scene definitions while
-keeping serialized gameplay/editor configuration in its existing data format.
+the release notes: the `.bsn` file format is still unreleased in 0.20.0-rc.1.
+A project may use BSN for reusable Rust scene definitions while keeping
+serialized gameplay/editor configuration in its existing data format.
 
 ## Classify every hierarchy before changing it
 
@@ -94,7 +98,7 @@ For a BSN/Feathers review report, include:
   candidates, and custom-widget exceptions;
 - Before, After, Migration Notes, BSN coverage, and Feathers coverage for each
   module;
-- the exact Bevy 0.19 source basis and known API limitations;
+- the exact Bevy source basis (for example `0.20.0-rc.1`) and known API limitations;
 - deferred-command and entity-reference tradeoffs;
 - verification commands and behavioral tests, not only compilation;
 - a prioritized incremental plan rather than a blanket rewrite.

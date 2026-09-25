@@ -7,7 +7,7 @@ description: Enforce Feathers Gallery-based architecture for all Bevy editor UI,
 
 Apply this skill automatically whenever editor UI is created, modified, refactored, debugged, or reviewed. It covers inspectors, settings, dialogs, toolbars, and future editor tooling.
 
-Canonical reference: [Bevy Feathers Gallery](https://bevy.org/examples/ui-user-interface/feathers-gallery/). Verify the actual Bevy 0.19 API in this project before using a widget or component; do not invent a Feathers type from a newer release.
+Canonical reference: [Bevy Feathers Gallery](https://bevy.org/examples/ui-user-interface/feathers-gallery/). Verify the actual Bevy/Feathers API pinned in this project (currently `0.20.0-rc.1`) in the local crate sources before using a widget or component; do not invent a Feathers type from another release. The online gallery may track a newer `main`.
 
 ## Non-negotiable UX rules
 
@@ -126,8 +126,16 @@ Do not wire a widget directly to arbitrary gameplay mutation. Components hold en
 
 Every editable value must support immediate preview refresh where meaningful. Prefer targeted messages/events and `Changed<T>`/`Added<T>` filters over rebuilding the entire UI tree every frame.
 
-## Bevy 0.19 and Feathers practices
+## Bevy 0.20 and Feathers practices
 
+- Use 0.20 BSN syntax: `--` between list entries, `@scene_fn()` to include a
+  scene function, `@{expr}` to insert a scene value.
+- Set initial Feathers slider values by patching `SliderValue(v)`; 0.20
+  `FeathersSliderProps` only has `min`/`max`.
+- Track pointer state with picking (`PickingInteraction` or `Hovered` +
+  `Pressed`) and use `bevy::ui_widgets::Button`; the deprecated
+  `Interaction`/prelude `Button` do not compile in 0.20 queries or scenes.
+- `UiWidgetsPlugins` ships in `DefaultPlugins`; do not register it again.
 - Prefer Feathers widgets shown in the Gallery for buttons, toggles, sliders, text inputs, menus, and disclosure controls.
 - Use `bsn!`, scene fragments, `Children[]`, and composition for stable editor hierarchy.
 - Keep runtime capture, dynamic values, focus ownership, and entity-reference wiring in ECS systems.
@@ -172,4 +180,4 @@ When asked to create an editor or add editable settings, produce and implement:
 5. Immediate preview refresh behavior.
 6. Feature/plugin organization and tests appropriate to the change.
 
-Never make a generic button the primary editing mechanism. If a requested requirement conflicts with the current model or Bevy/Feathers 0.19 API, state the limitation, preserve the window architecture, and implement the closest valid typed path with a documented follow-up.
+Never make a generic button the primary editing mechanism. If a requested requirement conflicts with the current model or the pinned Bevy/Feathers API, state the limitation, preserve the window architecture, and implement the closest valid typed path with a documented follow-up.

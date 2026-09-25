@@ -1,10 +1,10 @@
 //! ECS components owned by the editor feature.
 
 use super::EditorAction;
+use crate::widgets::{hud_clickable, hud_label_or, spawn_child, text_label};
 use crate::{
-    hud_action_field, hud_action_stepper, hud_child, hud_clickable, hud_control_owner,
-    hud_label_or, hud_text, HudContextControl, QuickAction, RadialMenu, Sector, WheelHudAction,
-    WheelTheme, HUD_AMBER, HUD_BADGE_BORDER, HUD_DIM, HUD_GREEN, HUD_PANEL_CARD, HUD_TEXT,
+    QuickAction, RadialMenu, Sector, WheelHudAction, WheelTheme, HUD_AMBER, HUD_BADGE_BORDER,
+    HUD_DIM, HUD_GREEN, HUD_PANEL_CARD, HUD_TEXT,
 };
 use bevy::feathers::controls::{ButtonVariant, FeathersButton};
 use bevy::feathers::controls::{
@@ -13,7 +13,9 @@ use bevy::feathers::controls::{
 use bevy::prelude::*;
 use bevy::text::EditableText;
 use bevy::ui::Checked;
-use bevy::ui_widgets::{checkbox_self_update, slider_self_update, SliderPrecision, SliderStep};
+use bevy::ui_widgets::{
+    checkbox_self_update, slider_self_update, Button, SliderPrecision, SliderStep, SliderValue,
+};
 
 /// A compact editor control used by the in-canvas settings cards.
 ///
@@ -49,8 +51,8 @@ fn settings_action_button(
         })
         .id();
     commands.entity(parent).add_child(button);
-    let left = hud_child(commands, button, hud_text(label, 10., HUD_DIM));
-    let right = hud_child(commands, button, hud_text(value, 10., accent));
+    let left = spawn_child(commands, button, text_label(label, 10., HUD_DIM));
+    let right = spawn_child(commands, button, text_label(value, 10., accent));
     commands.entity(left).insert(Node {
         flex_grow: 1.,
         ..default()
@@ -99,7 +101,7 @@ pub(crate) fn editor_window(
     title: &str,
     width: f32,
 ) -> Entity {
-    let window = hud_child(
+    let window = spawn_child(
         commands,
         parent,
         bsn! {
@@ -116,7 +118,7 @@ pub(crate) fn editor_window(
             BorderColor::all(HUD_BADGE_BORDER)
         },
     );
-    let title_bar = hud_child(
+    let title_bar = spawn_child(
         commands,
         window,
         bsn! {
@@ -124,7 +126,7 @@ pub(crate) fn editor_window(
                 align_items: AlignItems::Center, column_gap: { Val::Px(6.) } }
         },
     );
-    let title_node = hud_child(commands, title_bar, hud_text(title, 12., HUD_TEXT));
+    let title_node = spawn_child(commands, title_bar, text_label(title, 12., HUD_TEXT));
     commands.entity(title_node).insert(Node {
         flex_grow: 1.,
         ..default()
@@ -140,7 +142,7 @@ pub(crate) fn editor_window(
         WheelHudAction::CloseSelection,
         HUD_PANEL_CARD,
     );
-    hud_child(commands, close, hud_text("X", 12., HUD_TEXT));
+    spawn_child(commands, close, text_label("X", 12., HUD_TEXT));
     window
 }
 
@@ -150,7 +152,7 @@ pub(crate) fn property_row(
     label: &str,
     control: Entity,
 ) -> Entity {
-    let row = hud_child(
+    let row = spawn_child(
         commands,
         parent,
         bsn! {
@@ -158,14 +160,14 @@ pub(crate) fn property_row(
                 align_items: AlignItems::Center, column_gap: { Val::Px(8.) } }
         },
     );
-    let label_entity = hud_child(commands, row, hud_text(label, 10., HUD_DIM));
+    let label_entity = spawn_child(commands, row, text_label(label, 10., HUD_DIM));
     commands.entity(label_entity).insert(Node {
         width: Val::Px(92.),
         ..default()
     });
     // Feathers owns the control's node tree. Put it in a grid cell rather than
     // patching its `Node`, which would replace the widget's authored layout.
-    let control_cell = hud_child(
+    let control_cell = spawn_child(
         commands,
         row,
         bsn! {
@@ -203,7 +205,8 @@ pub(crate) fn slider_field(
 ) -> Entity {
     let entity = commands
         .spawn_scene(bsn! {
-            @FeathersSlider { @value: value, @min: min, @max: max }
+            @FeathersSlider { @min: min, @max: max }
+            SliderValue({ value })
             SliderStep({ (max - min) / 100. })
             SliderPrecision(2)
             on(slider_self_update)
@@ -245,7 +248,7 @@ pub(crate) fn input_capture_field(
             base: HUD_PANEL_CARD,
         })
         .id();
-    hud_child(commands, field, hud_text(value, 10., HUD_TEXT));
+    spawn_child(commands, field, text_label(value, 10., HUD_TEXT));
     field
 }
 
@@ -280,7 +283,7 @@ pub(crate) fn build_hud_action_editor_card(
         WheelHudAction::CycleActionIcon { set, entry },
         HUD_PANEL_CARD,
     );
-    hud_child(commands, icon, hud_text(&action.icon, 10., HUD_TEXT));
+    spawn_child(commands, icon, text_label(&action.icon, 10., HUD_TEXT));
     property_row(commands, card, "Icon", icon);
     let cooldown = slider_field(
         commands,
@@ -378,9 +381,9 @@ pub(crate) fn build_hud_action_editor_card(
         WheelHudAction::DeleteAction { set, entry },
         Color::srgba(0.55, 0.12, 0.14, 0.72),
     );
-    hud_child(commands, delete, hud_text("Delete button", 10., HUD_TEXT));
+    spawn_child(commands, delete, text_label("Delete button", 10., HUD_TEXT));
 
-    hud_child(commands, card, hud_text("Resize", 10., HUD_DIM));
+    spawn_child(commands, card, text_label("Resize", 10., HUD_DIM));
     hud_action_stepper(
         commands,
         card,
@@ -414,7 +417,7 @@ pub(crate) fn build_hud_action_editor_card(
         },
     );
 
-    hud_child(commands, card, hud_text("Move", 10., HUD_DIM));
+    spawn_child(commands, card, text_label("Move", 10., HUD_DIM));
     hud_action_stepper(
         commands,
         card,
@@ -449,10 +452,10 @@ pub(crate) fn build_hud_action_editor_card(
         WheelHudAction::CycleActionPosition { set, entry },
         HUD_PANEL_CARD,
     );
-    hud_child(
+    spawn_child(
         commands,
         position,
-        hud_text(
+        text_label(
             &format!("Placement: {}", action.position.label()),
             10.,
             HUD_TEXT,
@@ -483,7 +486,7 @@ pub(crate) fn spawn_wheel_settings_card(
     );
     property_row(commands, card, "Theme", theme_button);
     if theme_popup_open {
-        let theme_list = hud_child(
+        let theme_list = spawn_child(
             commands,
             card,
             bsn! {
@@ -559,7 +562,7 @@ pub(crate) fn spawn_segment_editor_card(
     outer_radius: f32,
     edit_control_focus: Option<usize>,
 ) {
-    let card = hud_child(
+    let card = spawn_child(
         commands,
         parent,
         bsn! {
@@ -577,12 +580,12 @@ pub(crate) fn spawn_segment_editor_card(
             BorderColor::all(HUD_BADGE_BORDER)
         },
     );
-    hud_child(commands, card, hud_text("Sector settings", 11., HUD_TEXT));
-    hud_child(commands, card, hud_text(&slot.name, 16., HUD_TEXT));
-    hud_child(
+    spawn_child(commands, card, text_label("Sector settings", 11., HUD_TEXT));
+    spawn_child(commands, card, text_label(&slot.name, 16., HUD_TEXT));
+    spawn_child(
         commands,
         card,
-        hud_text("Edit the selected sector", 9., HUD_DIM),
+        text_label("Edit the selected sector", 9., HUD_DIM),
     );
     let name = hud_clickable(
         commands,
@@ -606,7 +609,7 @@ pub(crate) fn spawn_segment_editor_card(
         },
         HUD_PANEL_CARD,
     );
-    hud_child(commands, name, hud_text("Set name  ›", 10., HUD_TEXT));
+    spawn_child(commands, name, text_label("Set name  ›", 10., HUD_TEXT));
     let icon = hud_clickable(
         commands,
         card,
@@ -629,7 +632,7 @@ pub(crate) fn spawn_segment_editor_card(
         },
         HUD_PANEL_CARD,
     );
-    hud_child(commands, icon, hud_text("Set icon  ›", 10., HUD_TEXT));
+    spawn_child(commands, icon, text_label("Set icon  ›", 10., HUD_TEXT));
     hud_action_field(
         commands,
         card,
@@ -719,7 +722,11 @@ pub(crate) fn spawn_segment_editor_card(
         },
         Color::srgba(0.55, 0.12, 0.14, 0.72),
     );
-    hud_child(commands, delete, hud_text("Delete segment", 10., HUD_TEXT));
+    spawn_child(
+        commands,
+        delete,
+        text_label("Delete segment", 10., HUD_TEXT),
+    );
     let close = hud_clickable(
         commands,
         card,
@@ -738,44 +745,97 @@ pub(crate) fn spawn_segment_editor_card(
         WheelHudAction::CloseSelection,
         HUD_PANEL_CARD,
     );
-    hud_child(commands, close, hud_text("Close", 10., HUD_TEXT));
+    spawn_child(commands, close, text_label("Close", 10., HUD_TEXT));
 }
 
-pub(crate) fn spawn_radial_edit_button(
+fn hud_action_field(
     commands: &mut Commands,
     parent: Entity,
-    position: Vec2,
-    action: WheelHudAction,
     label: &str,
-    color: Color,
-    focused: bool,
+    value: &str,
+    height: f32,
+    action: WheelHudAction,
+    value_color: Color,
 ) {
-    let owner = hud_control_owner(&action);
-    let button = hud_clickable(
+    let field = hud_clickable(
         commands,
         parent,
         bsn! {
             Node {
-                position_type: PositionType::Absolute,
-                left: {Val::Px(position.x - 11.)},
-                top: {Val::Px(-position.y - 11.)},
-                width: {Val::Px(22.)}, height: {Val::Px(22.)},
-                justify_content: JustifyContent::Center,
+                height: {Val::Px(height)},
+                padding: {UiRect::horizontal(Val::Px(9.))},
+                flex_direction: FlexDirection::Row,
+                justify_content: JustifyContent::SpaceBetween,
                 align_items: AlignItems::Center,
                 border: {UiRect::all(Val::Px(1.))},
-                border_radius: {BorderRadius::all(Val::Px(11.))},
+                border_radius: {BorderRadius::all(Val::Px(4.))},
             }
-            BackgroundColor({if focused { HUD_AMBER } else { HUD_PANEL_CARD }})
-            BorderColor::all(if focused { HUD_TEXT } else { HUD_BADGE_BORDER })
+            BackgroundColor({HUD_PANEL_CARD})
+            BorderColor::all(HUD_BADGE_BORDER)
             Button
         },
         action,
         HUD_PANEL_CARD,
     );
-    if let Some(owner) = owner {
-        commands
-            .entity(button)
-            .insert((HudContextControl { owner }, Visibility::Hidden));
-    }
-    hud_child(commands, button, hud_text(label, 15., color));
+    spawn_child(commands, field, text_label(label, 9., HUD_DIM));
+    spawn_child(commands, field, text_label(value, 11., value_color));
+}
+
+fn hud_action_stepper(
+    commands: &mut Commands,
+    parent: Entity,
+    label: &str,
+    value: &str,
+    decrement: WheelHudAction,
+    increment: WheelHudAction,
+) {
+    let row = spawn_child(
+        commands,
+        parent,
+        bsn! {
+            Node {
+                height: {Val::Px(26.)},
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: {Val::Px(4.)},
+            }
+        },
+    );
+    spawn_child(commands, row, text_label(label, 10., HUD_TEXT));
+    stepper_button(commands, row, "−", decrement);
+    let value_node = spawn_child(
+        commands,
+        row,
+        bsn! {
+            Node {
+                width: {Val::Px(52.)}, height: {Val::Px(24.)},
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+            }
+        },
+    );
+    spawn_child(commands, value_node, text_label(value, 10., HUD_DIM));
+    stepper_button(commands, row, "+", increment);
+}
+
+fn stepper_button(commands: &mut Commands, row: Entity, glyph: &str, action: WheelHudAction) {
+    let button = hud_clickable(
+        commands,
+        row,
+        bsn! {
+            Node {
+                width: {Val::Px(26.)}, height: {Val::Px(24.)},
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                border: {UiRect::all(Val::Px(1.))},
+                border_radius: {BorderRadius::all(Val::Px(4.))},
+            }
+            BackgroundColor({HUD_PANEL_CARD})
+            BorderColor::all(HUD_BADGE_BORDER)
+            Button
+        },
+        action,
+        HUD_PANEL_CARD,
+    );
+    spawn_child(commands, button, text_label(glyph, 14., HUD_TEXT));
 }

@@ -38,8 +38,8 @@ These are the project defaults for new code and refactors.
 - Do not mechanically wrap imperative spawn calls in BSN.
 - Keep runtime geometry, input/hit testing, asset readiness and entity wiring
   in focused ECS systems when values are not known at scene resolution.
-- In Bevy 0.19, Rust-authored BSN is available; disk-backed `.bsn` authoring
-  must not be assumed without verifying the current release.
+- In Bevy 0.20, Rust-authored BSN is available; disk-backed `.bsn` authoring
+  is still unreleased and must not be assumed without verifying the release.
 
 ## Feathers-first editor UI
 

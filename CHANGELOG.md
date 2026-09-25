@@ -5,6 +5,17 @@ All notable changes to `bevy_quick_action_hud` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Upgraded to Bevy / `bevy_feathers` 0.20.0-rc.1** (requires Rust 1.96+).
+- BSN scenes use 0.20 syntax (`@{scene}` and `@scene_fn()` includes).
+- HUD pointer state uses `PickingInteraction` instead of the deprecated
+  `Interaction`; clickable markers use `bevy::ui_widgets::Button`, and
+  `WheelHudButton` now requires `PickingInteraction`.
+- Editor sliders set their initial value through `SliderValue`.
+
 ## [0.2.0] — 2026-07-15
 
 ### Added

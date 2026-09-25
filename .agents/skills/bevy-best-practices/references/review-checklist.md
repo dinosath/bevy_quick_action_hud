@@ -1,4 +1,4 @@
-# Bevy 0.19 review checklist
+# Bevy 0.20 review checklist
 
 Use this as a routing checklist, not as a requirement to comment on every item.
 
@@ -24,7 +24,7 @@ Check that components are small data records and systems express behavior. Flag:
 - content encoded as large `match` statements instead of serializable data;
 - event/message types used as implicit global command buses without ownership or lifecycle.
 
-Recommend events/messages for decoupled communication, resources only for global state, and marker components or state-scoped schedules for activation. In Bevy 0.19, verify whether the project uses the current message/event APIs expected by its exact dependency version rather than copying older examples.
+Recommend events/messages for decoupled communication, resources only for global state, and marker components or state-scoped schedules for activation. In Bevy 0.20, verify whether the project uses the current message/event APIs expected by its exact dependency version rather than copying older examples.
 
 ## Schedules and states
 
@@ -48,7 +48,16 @@ Discuss entity count, archetype fragmentation, allocations, command-buffer volum
 
 Bevy UI is an ECS hierarchy. Keep long-lived UI entities stable and update visual state in place. Pointer hover, focus, pressed state, animation, and selection should not rebuild or despawn an entire UI tree. Structural rebuilds are reasonable after a document/schema/layout change, but should be explicit and infrequent. Track ownership of dynamically spawned subtrees and recursively despawn owned descendants before parents, using the APIs supported by the exact Bevy version.
 
-Separate UI/editor state from gameplay state. For keyboard/gamepad UI navigation, use focused entities, semantic actions, and consistent `Interaction`/focus handling. Check hit targets, hidden controls, z-order, layout bounds, and whether contextual controls intercept input meant for their owner.
+For reusable widgets, check the widget/consumer boundary: flag adapters with
+long positional parameter lists or index tuples, consumers that clone and
+re-theme widget data, consumers that reimplement widget geometry to place
+overlays, forwarding wrappers with no logic, magic-integer focus indices,
+duplicated helpers across modules, `[f32; 4]` color constants converted at
+each use instead of `const Color`, hand-written recursive despawn
+(`despawn()` is already recursive), and core widget systems that read consumer
+resources. See [reusable-widgets.md](reusable-widgets.md).
+
+Separate UI/editor state from gameplay state. For keyboard/gamepad UI navigation, use focused entities, semantic actions, and consistent picking-based interaction (`PickingInteraction`, or `Hovered` + `Pressed`, in 0.20; `Interaction` only on 0.19) and focus handling. Check hit targets, hidden controls, z-order, layout bounds, and whether contextual controls intercept input meant for their owner.
 
 ## Assets and persistence
 
@@ -56,11 +65,11 @@ Prefer `AssetServer` handles and a loading state or asset collection for startup
 
 ## Modern API compatibility
 
-Inspect `Cargo.toml`, lockfile, feature flags, and imports before judging API usage. Cross-check release notes and migration guides for changes to schedules, messages/events, observers, UI, hierarchy, rendering, input, and asset APIs. Mark Cheatbook advice as conditional if it targets another version. Prefer compiler errors and official examples as the final authority.
+Inspect `Cargo.toml`, lockfile, feature flags, and imports before judging API usage. Cross-check release notes and migration guides for changes to schedules, messages/events, observers, UI, hierarchy, rendering, input, and asset APIs; for 0.19 → 0.20 use [migration-0.19-to-0.20.md](migration-0.19-to-0.20.md). Flag deprecated APIs (`#[deprecated]` warnings) as migration debt even when they still compile. Mark Cheatbook advice as conditional if it targets another version. Prefer compiler errors and official examples as the final authority.
 
 ## Plugin recommendations
 
-Recommend an ecosystem plugin only after identifying the concrete capability and checking Bevy 0.19 compatibility, maintenance, licensing, and integration cost. Examples include:
+Recommend an ecosystem plugin only after identifying the concrete capability and checking compatibility with the pinned Bevy release (ecosystem crates often lag behind 0.20 prereleases), maintenance, licensing, and integration cost. Examples include:
 
 - `bevy_asset_loader` for declarative asset-loading states;
 - `bevy_mod_picking` for pointer picking when native UI interaction is insufficient;

@@ -13,8 +13,9 @@ description: >
 
 Structure a Bevy game in Rust around the Entity Component System: the `App` and
 plugins, components and resources, systems with queries, scheduling, and
-frame-rate-independent updates. New examples target **Bevy 0.19**. If the project
-already pins another release, keep that release and use its matching migration guide.
+frame-rate-independent updates. New examples target **Bevy 0.20** (this repository
+pins the `0.20.0-rc.1` prerelease). If the project already pins another release,
+keep that release and use its matching migration guide.
 
 ## When to use
 
@@ -31,14 +32,16 @@ procedural algorithms, pair with `game-ai` / `procedural-gen`.
 ## Core workflow
 
 1. **Detect and pin the version.** Read `Cargo.toml` and `Cargo.lock` first. For a
-   new project use `bevy = "0.19"`; never silently migrate an existing project
-   across a Bevy minor release. Treat the matching docs and migration guides as truth.
+   new project use the release the user targets (`bevy = "0.20.0-rc.1"` here;
+   prereleases must be pinned exactly, and 0.20 needs Rust 1.96+). Never silently
+   migrate an existing project across a Bevy minor release. Treat the matching
+   docs, local crate sources, and migration guides as truth.
 2. **Build the `App`.** `App::new().add_plugins(DefaultPlugins)` gives windowing,
    input, rendering, time, etc. Register systems into schedules: `Startup` (once)
    and `Update` (every frame).
 3. **Model data as components, globals as resources.** `#[derive(Component)]` for
    per-entity data; `#[derive(Resource)]` for one-of-a-kind data (score, settings,
-   the `Time` clock). In 0.19 `Resource` extends `Component`, so do not derive both.
+   the `Time` clock). Since 0.19 `Resource` extends `Component`, so do not derive both.
 4. **Write systems as plain functions.** Parameters declare data access: `Query<...>`
    for entities, `Res<T>`/`ResMut<T>` for resources, `Commands` for deferred
    spawn/despawn. Systems run in parallel when their accesses don't conflict.
@@ -69,7 +72,7 @@ procedural algorithms, pair with `game-ai` / `procedural-gen`.
 ```toml
 # Cargo.toml — pin the version; the API differs across minor releases.
 [dependencies]
-bevy = "0.19"
+bevy = "0.20.0-rc.1"   # prerelease: "0.20" would not match it
 ```
 
 ```rust
@@ -198,8 +201,15 @@ impl Plugin for GameplayPlugin {
   not the one that spawned it.
 - **System order assumed but not enforced** → systems run in parallel by default.
   If `B` must follow `A`, add `(A, B).chain()` or an explicit ordering constraint.
-- **Deriving both `Resource` and `Component` in 0.19** → `Resource` now extends
+- **Deriving both `Resource` and `Component` (0.19+)** → `Resource` now extends
   `Component`; derive `Resource` alone to avoid conflicting implementations.
+- **`type DeprecatedInteraction is private` / `expected value, found type alias
+  Button` (0.20)** → `bevy::ui::Interaction` and the prelude `Button` are
+  deprecated aliases of private types. Use `bevy::picking::hover::PickingInteraction`
+  (or `Hovered` + `Pressed`) and import `bevy::ui_widgets::Button` explicitly.
+- **Lifecycle observer / pointer event not found (0.20)** → use `On<Add<T>>`
+  instead of `On<Add, T>`, and flat `PointerClick`/`PointerOver` instead of
+  `Pointer<Click>`. The `on_replace` hook is now `on_discard`.
 - **Copy-pasting older Bevy snippets** → APIs shift between minor versions. The
   buffered event system became the message system in recent releases. Verify against
   the docs and migration guide for *your* pinned version; don't mix versions.
@@ -210,6 +220,9 @@ impl Plugin for GameplayPlugin {
   detection, `Commands` lifecycle and sync points, `ParamSet` for conflicting
   queries, and a version note on the events/observers API, read
   `references/queries-and-scheduling.md`.
+- For the verified 0.19 → 0.20 API changes (BSN syntax, UI interaction,
+  observers, picking, Feathers), read
+  `../bevy-best-practices/references/migration-0.19-to-0.20.md`.
 
 ## Related skills
 

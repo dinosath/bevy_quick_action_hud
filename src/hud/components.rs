@@ -1,14 +1,18 @@
 //! Entity components owned by the rendered HUD feature.
 
+use bevy::picking::hover::PickingInteraction;
 use bevy::prelude::*;
 
+use crate::widgets::hud_layer;
 use crate::WheelHudAction;
 
-#[derive(Component)]
+#[derive(Component, Default, Clone)]
+#[require(Node = hud_layer())]
 /// Root marker for the retained HUD hierarchy.
 pub struct WheelHudRoot;
 
 #[derive(Component, Clone)]
+#[require(PickingInteraction)]
 /// Presentation action attached to an interactive HUD control.
 pub struct WheelHudButton {
     /// Intent emitted when the control is pressed.
@@ -35,18 +39,9 @@ pub enum HudControlOwner {
     HudSwitch(usize, usize),
 }
 
-#[derive(Component, Clone, Copy)]
-/// Hit-test identity for a radial-menu sector.
-pub struct WheelHudSegmentHit {
-    /// Page containing the sector.
-    pub set: usize,
-    /// Entry containing the radial menu.
-    pub entry: usize,
-    /// Wheel index within a set, if applicable.
-    pub wheel: Option<usize>,
-    /// Sector index within the wheel.
-    pub slot: usize,
-}
+#[derive(Component, Default, Clone, Copy)]
+/// HUD identity (page, entry, menu index) of a spawned radial menu.
+pub struct HudRadialMenu(pub (usize, usize, Option<usize>));
 
 /// Maps an editor affordance back to the HUD component it belongs to.
 pub(crate) fn control_owner(action: &WheelHudAction) -> Option<HudControlOwner> {

@@ -1,4 +1,4 @@
-# Bevy queries & scheduling detail (0.19)
+# Bevy queries & scheduling detail (0.20)
 
 Depth behind the ECS skill: query filters and access, schedules and ordering,
 states, change detection, and the `Commands` lifecycle. Verify any borderline API
@@ -154,6 +154,7 @@ use sparingly.
 ## Messages / observers — version caution
 
 Bevy's buffered event API evolved into the message API in recent releases, while
-observers remain event-oriented. If systems need buffered communication, look up
-the exact message/observer API for the pinned release rather than copying an
-example from a different version.
+observers remain event-oriented. In 0.20, lifecycle observers use event patterns
+(`On<Add<T>>`, `On<Insert<T>>`, `On<Remove<T>>`); 0.19 used `On<Add, T>`. If
+systems need buffered communication, look up the exact message/observer API for
+the pinned release rather than copying an example from a different version.

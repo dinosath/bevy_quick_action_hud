@@ -15,11 +15,13 @@ mod helpers;
 mod hud_interaction;
 mod input;
 mod navigation;
+pub(crate) mod overlays;
 mod persistence;
 mod plugin;
 mod render;
 mod shortcuts;
 mod state;
+mod toolbar;
 mod validation;
 
 use action_apply::apply_action;
@@ -43,6 +45,12 @@ use shortcuts::{
 };
 pub use state::{EditFocus, EditorUiState, Selection};
 use state::{HudMiddleDrag, MiddleDragTarget};
+pub use toolbar::EditMode;
+
+/// Registers the observer that fills the [`EditMode`] slot.
+pub(crate) fn hud_plugin(app: &mut App) {
+    app.add_observer(toolbar::fill_edit_mode);
+}
 use validation::{validate_config, ConfigValidation};
 
 /// Public touch sizing helper retained for the wasm/mobile integration.

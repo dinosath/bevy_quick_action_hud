@@ -3,7 +3,7 @@
 use crate::*;
 use bevy::prelude::*;
 
-use super::components::sector_index_at_angle;
+use super::geometry::sector_index_at_angle;
 
 /// Determines which slice is hovered and handles per-mode activation:
 /// - [`CastingMode::ReleaseToUse`]: fires [`WheelMenuSelected`] when the stick
